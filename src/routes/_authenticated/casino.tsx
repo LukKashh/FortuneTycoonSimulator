@@ -14,7 +14,7 @@ import {
   type RouletteBet,
 } from "@/game/casino";
 import { money } from "@/lib/format";
-import { Card, Loading, PageHeader, Pill } from "@/components/game/ui";
+import { Card, Loading, Pill } from "@/components/game/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -39,8 +39,6 @@ export const Route = createFileRoute("/_authenticated/casino")({
   component: CasinoPage,
 });
 
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
-
 const GAMES = ["Roulette", "Blackjack", "Mines", "Keno", "Hi-Lo"] as const;
 type G = (typeof GAMES)[number];
 const chipsFmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -62,13 +60,9 @@ function CasinoPage() {
     : null;
   const g = activeGame ?? game;
   return (
-    <div>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <PageHeader title="Casino" subtitle="1 chip = $100 · exchange both ways, no fee" />
-        <PersonalBalanceBadge />
-      </div>
+    <div className="space-y-2.5">
       <Exchange cash={data.state.cash} chips={cs.chips} />
-      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
+      <div className="flex gap-1 overflow-x-auto pb-0.5 no-scrollbar">
         {GAMES.map((x) => (
           <Button
             key={x}
@@ -76,7 +70,7 @@ function CasinoPage() {
             variant={g === x ? "default" : "outline"}
             disabled={!!activeGame && activeGame !== x}
             onClick={() => setGame(x)}
-            className={cn("shrink-0", g === x && "bg-gradient-primary")}
+            className={cn("h-8 shrink-0 px-3 text-xs", g === x && "bg-gradient-primary")}
           >
             {x}
           </Button>
@@ -87,18 +81,18 @@ function CasinoPage() {
       {g === "Mines" && <Mines cs={cs} />}
       {g === "Keno" && <Keno cs={cs} />}
       {g === "Hi-Lo" && <Hilo cs={cs} />}
-      <Card className="mt-4">
+      <Card className="p-2.5">
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           <div>
-            <div className="text-muted-foreground">Rounds</div>
+            <div className="text-[10px] text-muted-foreground">Rounds</div>
             <div className="num font-semibold">{cs.stats.rounds}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Wagered</div>
+            <div className="text-[10px] text-muted-foreground">Wagered</div>
             <div className="num font-semibold">{chipsFmt(cs.stats.wagered)}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Net</div>
+            <div className="text-[10px] text-muted-foreground">Net</div>
             <div
               className={cn(
                 "num font-semibold",
@@ -119,55 +113,53 @@ function Exchange({ cash, chips }: { cash: number; chips: number }) {
   const [n, setN] = useState("10");
   const v = Math.floor(Number(n) || 0);
   return (
-    <Card className="mb-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <div className="text-[11px] uppercase text-muted-foreground">Your chips</div>
-          <div className="num flex items-center gap-1.5 text-2xl font-bold text-gold">
-            <Coins className="h-5 w-5" />
+    <Card className="p-2.5">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="num flex items-center gap-1 text-lg font-bold text-gold">
+            <Coins className="h-4 w-4" />
             {chipsFmt(chips)}
           </div>
+          <span className="text-[10px] text-muted-foreground">
+            ({money(chips * CASINO.chipValue)} · 1 chip = $100)
+          </span>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
-          Worth
-          <div className="num text-sm font-semibold text-foreground">
-            {money(chips * CASINO.chipValue)}
-          </div>
-        </div>
+        <span className="num text-[11px] font-medium text-muted-foreground">
+          {chipsFmt(v)} = {money(v * CASINO.chipValue)}
+        </span>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         <Input
           inputMode="numeric"
           value={n}
           onChange={(e) => setN(e.target.value.replace(/[^\d]/g, ""))}
-          className="h-10"
+          className="h-8 text-xs"
           aria-label="Chips to exchange"
         />
         <Button
           variant="outline"
-          className="h-10"
+          size="sm"
+          className="h-8 px-2.5 text-xs"
           onClick={() => setN(String(Math.floor(cash / CASINO.chipValue)))}
         >
           Max
         </Button>
-      </div>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {chipsFmt(v)} chips = {money(v * CASINO.chipValue)}
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2">
         <Button
+          size="sm"
           disabled={pending || v < 1 || cash < v * CASINO.chipValue}
           onClick={() => run({ type: "buyChips", chips: v }, `Bought ${v} chips`)}
-          className="bg-gradient-primary"
+          className="h-8 bg-gradient-primary px-3 text-xs"
         >
-          Buy chips
+          Buy
         </Button>
         <Button
+          size="sm"
           variant="outline"
           disabled={pending || v < 1 || chips < v}
           onClick={() => run({ type: "sellChips", chips: v }, `Cashed out ${v} chips`)}
+          className="h-8 px-3 text-xs"
         >
-          Cash out
+          Sell
         </Button>
       </div>
     </Card>

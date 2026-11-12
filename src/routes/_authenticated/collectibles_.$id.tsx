@@ -19,6 +19,7 @@ import {
   Card,
   Confirm,
   Empty,
+  GameScrollContainer,
   Loading,
   MiniChart,
   Pill,
@@ -28,14 +29,13 @@ import {
 } from "@/components/game/ui";
 import { CollectibleIcon } from "@/components/game/CollectibleIcon";
 import { Button } from "@/components/ui/button";
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
 
 export const Route = createFileRoute("/_authenticated/collectibles_/$id")({
   head: () => ({
     meta: [
-      { title: "Collectible — Capitalfortune" },
+      { title: "Asset Details — Capitalfortune" },
       { name: "description", content: "Item details, valuation history and ownership." },
-      { property: "og:title", content: "Collectible — Capitalfortune" },
+      { property: "og:title", content: "Asset Details — Capitalfortune" },
       { property: "og:description", content: "Item details, valuation history and ownership." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -68,119 +68,121 @@ function ItemPage() {
   const left = it.limited ? it.limited - sold : null;
   const cols = COLLECTIONS.filter((c) => c.items.includes(it.id));
   const ownedIds = new Set(Object.values(s.collectibles).map((o) => o.itemId));
-  const history = s.collectibleSales.filter((x) => x.itemId === it.id);
 
   return (
-    <div>
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <GameScrollContainer className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
         <Link
-          to="/collectibles"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          to="/markets"
+          search={{ tab: "assets" }}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Collectibles
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Assets
         </Link>
-        <PersonalBalanceBadge />
+        <div className="flex gap-1">
+          <Pill tone="primary">{it.rarity}</Pill>
+          <Pill tone={it.limited ? "gold" : "muted"}>
+            {it.limited ? `Limited (${it.limited})` : "Standard"}
+          </Pill>
+        </div>
       </div>
-      <div className="mb-4 flex gap-4">
-        <CollectibleIcon category={it.category} rarity={it.rarity} className="h-24 w-24 shrink-0" />
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold">{it.name}</h1>
+
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card/85 p-2.5">
+        <CollectibleIcon category={it.category} rarity={it.rarity} className="h-14 w-14 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-bold">{it.name}</h1>
           <p className="text-xs text-muted-foreground">
-            ID {it.id} · {cat.name} / {it.sub}
+            {cat.name} · {it.sub}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            <Pill tone="primary">{it.rarity}</Pill>
-            <Pill tone={it.limited ? "gold" : "muted"}>
-              {it.limited ? `Limited · ${it.limited} copies` : "Standard edition"}
-            </Pill>
+          <div className="mt-1 flex items-center gap-2 text-xs">
+            <span className="num font-bold text-foreground">{money(v)}</span>
+            <span className={`num ${v >= it.baseValue ? "text-gain" : "text-loss"}`}>
+              ({pct(v / it.baseValue - 1, 1, true)})
+            </span>
           </div>
         </div>
       </div>
-      <Card className="mb-3">
-        <div className="num mb-1 text-2xl font-bold">{money(v)}</div>
-        <MiniChart data={chart} format={(x) => money(x)} />
+
+      <Card className="p-2.5">
+        <MiniChart data={chart} height={110} format={(x) => money(x)} />
         <div className="mt-2">
           <RangeTabs value={range} onChange={setRange} />
         </div>
       </Card>
-      <Card className="mb-3">
+
+      <Card>
         <Row label="Purchase price" value={money(it.price)} />
-        <Row label="Base valuation" value={money(it.baseValue)} />
         <Row label="Current estimate" value={money(v)} />
-        <Row
-          label="Change vs base"
-          value={pct(v / it.baseValue - 1, 1, true)}
-          tone={v >= it.baseValue ? "gain" : "loss"}
-        />
         <Row label="Demand" value={demandLabel(it, now)} />
-        <Row label="Volatility" value={pct(cat.volatility, 0)} />
-        <Row label="Valuation updates" value={`every ${cat.updateHours}h`} />
         <Row
           label="Availability"
           value={
             !released
               ? `Releases ${date(it.releaseAt!)}`
               : left === null
-                ? "Always available"
-                : `${left} of ${it.limited} left`
+                ? "Available"
+                : `${left} / ${it.limited} left`
           }
         />
         <Row
           label="Resale"
           value={
             it.restrictedResale
-              ? "Restricted special edition"
-              : `${pct(RESALE_PCT[it.rarity], 0)} of estimate after ${HOLD_HOURS[it.rarity]}h`
+              ? "Restricted"
+              : `${pct(RESALE_PCT[it.rarity], 0)} after ${HOLD_HOURS[it.rarity]}h`
           }
         />
         <Row
-          label="Benefit while owned"
+          label="Passive bonus"
           value={
             it.bonus
-              ? `+${it.bonus.key === "offlineHours" ? `${it.bonus.value}h offline` : pct(it.bonus.value, 1) + " " + it.bonus.key.replace("Pct", "").replace("feeCut", "fee reduction")}`
-              : "Prestige only"
+              ? `+${it.bonus.key === "offlineHours" ? `${it.bonus.value}h offline` : pct(it.bonus.value, 1) + " " + it.bonus.key.replace("Pct", "").replace("feeCut", "fee cut")}`
+              : "Prestige"
           }
         />
       </Card>
+
       <Confirm
         trigger={
           <Button
-            className="mb-3 h-11 w-full bg-gradient-primary"
+            className="h-10 w-full bg-gradient-primary text-xs font-semibold"
             disabled={pending || !released || left === 0 || s.cash < it.price}
           >
             {!released ? "Not yet released" : left === 0 ? "Sold out" : `Buy · ${money(it.price)}`}
           </Button>
         }
         title={`Buy ${it.name}?`}
-        description={`${money(it.price)} from your balance. You must hold it ${HOLD_HOURS[it.rarity]}h before resale. No ongoing costs.`}
+        description={`Deducts ${money(it.price)} from your balance. Hold period: ${HOLD_HOURS[it.rarity]}h.`}
         onConfirm={() =>
           run({ type: "buyCollectible", itemId: it.id, soldCount: sold }, "Purchased").then(() =>
             refetch(),
           )
         }
       />
-      <Card className="mb-3">
-        <div className="mb-2 text-sm font-semibold">Your copies ({copies.length})</div>
-        {copies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">You don't own this item.</p>
-        ) : (
-          copies.map((o) => {
+
+      {copies.length > 0 && (
+        <Card>
+          <div className="mb-1.5 text-xs font-semibold">Owned Copies ({copies.length})</div>
+          {copies.map((o) => {
             const canSell = !it.restrictedResale && now >= o.holdUntil;
             return (
               <div
                 key={o.inst}
-                className="flex items-center justify-between border-t border-border py-2 text-sm first:border-0"
+                className="flex items-center justify-between border-t border-border py-1.5 text-xs first:border-0"
               >
                 <div>
-                  <div>Copy #{o.inst}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Acquired {date(o.boughtAt)} for {money(o.price)}
-                  </div>
+                  <div className="font-medium">Copy #{o.inst}</div>
+                  <div className="text-[10px] text-muted-foreground">Paid {money(o.price)}</div>
                 </div>
                 <Confirm
                   trigger={
-                    <Button size="sm" variant="outline" disabled={!canSell || pending}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      disabled={!canSell || pending}
+                    >
                       {it.restrictedResale
                         ? "Restricted"
                         : now < o.holdUntil
@@ -189,23 +191,18 @@ function ItemPage() {
                     </Button>
                   }
                   title="Sell this copy?"
-                  description={`Payout ${money(v * RESALE_PCT[it.rarity])} (${pct(RESALE_PCT[it.rarity], 0)} of current estimate). Benefits from this item stop immediately.`}
+                  description={`Payout: ${money(v * RESALE_PCT[it.rarity])}.`}
                   onConfirm={() => run({ type: "sellCollectible", inst: o.inst }, "Sold")}
                 />
               </div>
             );
-          })
-        )}
-        {history.length > 0 && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            Resale history:{" "}
-            {history.map((h) => `${money(h.payout)} on ${date(h.soldAt)}`).join(" · ")}
-          </div>
-        )}
-      </Card>
+          })}
+        </Card>
+      )}
+
       {cols.length > 0 && (
         <Card>
-          <div className="mb-2 text-sm font-semibold">Collections</div>
+          <div className="mb-1 text-xs font-semibold">Set Progress</div>
           {cols.map((c) => (
             <Row
               key={c.id}
@@ -215,6 +212,6 @@ function ItemPage() {
           ))}
         </Card>
       )}
-    </div>
+    </GameScrollContainer>
   );
 }

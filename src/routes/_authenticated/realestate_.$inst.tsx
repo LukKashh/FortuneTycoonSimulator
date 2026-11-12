@@ -5,14 +5,19 @@ import { BALANCE, PROPERTY_BY_ID, PROPERTY_UPGRADES } from "@/game/config";
 import { conditionLabel, personalMods, propertyEcon, propertyValue } from "@/game/engine";
 import { corpMods } from "@/game/corp";
 import { date, money, pct } from "@/lib/format";
-import { Card, Confirm, Empty, GameImg, Loading, Pill, Progress, Row } from "@/components/game/ui";
-import { propertyImage } from "@/components/game/art";
+import {
+  Card,
+  Confirm,
+  Empty,
+  GameScrollContainer,
+  Loading,
+  Pill,
+  Progress,
+  Row,
+} from "@/components/game/ui";
 import { BuildingSprite } from "@/components/game/BuildingSprite";
-import { WALLET_REFRESH_MS, liveCompanyWallet, liveRentWallet } from "@/components/game/wallet";
+import { WALLET_REFRESH_MS, liveRentWallet } from "@/components/game/wallet";
 import { Button } from "@/components/ui/button";
-import { GameScrollContainer } from "@/components/game/ui";
-
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
 
 export const Route = createFileRoute("/_authenticated/realestate_/$inst")({
   head: () => ({
@@ -42,8 +47,10 @@ function PropertyPage() {
       <Empty
         title="Property not found"
         action={
-          <Button asChild>
-            <Link to="/realestate">Back</Link>
+          <Button asChild size="sm">
+            <Link to="/empire" search={{ section: "realestate" }}>
+              Back to Empire
+            </Link>
           </Button>
         }
       />
@@ -52,91 +59,112 @@ function PropertyPage() {
   const e = propertyEcon(pr, personalMods(s), corpMods(data.corp), now);
   const value = propertyValue(pr);
   const maintCost = Math.round(pr.price * 0.02 * ((100 - pr.condition) / 100) + 50);
+  const walletAmt = liveRentWallet(pr, e.net, s.lastTick, now);
+
   return (
-    <GameScrollContainer>
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <GameScrollContainer className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
         <Link
-          to="/realestate"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          to="/empire"
+          search={{ section: "realestate" }}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Real estate
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Real Estate
         </Link>
-        <PersonalBalanceBadge />
+        <Pill tone={pr.condition >= 65 ? "gain" : pr.condition >= 40 ? "warn" : "loss"}>
+          {conditionLabel(pr.condition)} · {Math.round(pr.condition)}%
+        </Pill>
       </div>
-      <BuildingSprite
-        propertyCategory={d.category}
-        propertyName={d.name}
-        fit="cover"
-        className="mb-3 h-52 w-full rounded-2xl bg-gradient-to-br from-primary/15 via-muted/30 to-card border border-primary/30 p-2 shadow-sm"
-      />
-      <h1 className="text-2xl font-bold">{d.name}</h1>
-      <p className="mb-3 text-sm text-muted-foreground">
-        {d.category} · {d.location} · bought {date(pr.boughtAt)}
-      </p>
-      <Card className="mb-3">
-        <Row label="Gross rent /h" value={money(e.gross)} tone="gain" />
-        <Row label="Operating expenses /h" value={money(-e.expenses)} />
-        <Row label="Net rent /h" value={money(e.net)} tone={e.net >= 0 ? "gain" : "loss"} />
-        <Row label="Occupancy" value={pct(e.occupancy)} />
-        <Row label="Demand multiplier" value={`×${e.demand.toFixed(2)}`} />
-        <Row label="Lifetime net rent" value={money(pr.rentTotal)} />
-      </Card>
-      <Card className="mb-3 border-primary/40">
-        <div className="text-xs text-muted-foreground">Rent wallet · {money(e.net)}/h</div>
-        <div className="num text-2xl font-bold text-gain">
-          {money(liveRentWallet(pr, e.net, s.lastTick, now))}
+
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card/85 p-2.5">
+        <BuildingSprite
+          propertyCategory={d.category}
+          propertyName={d.name}
+          fit="cover"
+          className="h-16 w-20 shrink-0 rounded-xl bg-gradient-to-br from-primary/15 via-muted/30 to-card border border-primary/30 p-1"
+        />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-bold">{d.name}</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {d.category} · {d.location} · {date(pr.boughtAt)}
+          </p>
+          <div className="mt-1 flex items-center gap-3 text-xs">
+            <span>
+              Net: <b className={e.net >= 0 ? "text-gain" : "text-loss"}>{money(e.net)}/h</b>
+            </span>
+            <span>
+              Occ: <b>{pct(e.occupancy, 0)}</b>
+            </span>
+          </div>
         </div>
-        <Button
-          className="mt-2 w-full bg-gradient-primary"
-          disabled={pending || liveRentWallet(pr, e.net, s.lastTick, now) < 0.01}
-          onClick={() => run({ type: "collectRent", inst }, "Transferred to balance")}
-        >
-          Transfer to balance
-        </Button>
+      </div>
+
+      <Card className="border-primary/35 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[10px] uppercase text-muted-foreground">
+              Rent Wallet · {money(e.net)}/h
+            </div>
+            <div className="num text-lg font-bold text-gain">{money(walletAmt)}</div>
+          </div>
+          <Button
+            size="sm"
+            className="h-8 bg-gradient-primary px-3 text-xs font-semibold"
+            disabled={pending || walletAmt < 0.01}
+            onClick={() => run({ type: "collectRent", inst }, "Transferred to balance")}
+          >
+            Collect Rent
+          </Button>
+        </div>
       </Card>
-      <Card className="mb-3">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold">Condition</div>
-          <Pill tone={pr.condition >= 65 ? "gain" : pr.condition >= 40 ? "warn" : "loss"}>
-            {conditionLabel(pr.condition)} · {Math.round(pr.condition)}%
-          </Pill>
+
+      <Card>
+        <Row label="Gross rent /h" value={money(e.gross)} tone="gain" />
+        <Row label="Expenses /h" value={money(-e.expenses)} />
+        <Row label="Net rent /h" value={money(e.net)} tone={e.net >= 0 ? "gain" : "loss"} />
+        <Row label="Demand multiplier" value={`×${e.demand.toFixed(2)}`} />
+        <Row label="Lifetime rent" value={money(pr.rentTotal)} />
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold">Condition ({Math.round(pr.condition)}%)</div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 text-xs"
+            disabled={pending || pr.condition >= 99}
+            onClick={() => run({ type: "maintain", inst }, "Maintenance done")}
+          >
+            Maintain · {money(maintCost)}
+          </Button>
         </div>
         <Progress value={pr.condition / 100} className="mt-2" />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Degrades ~{BALANCE.propertyDecayPerDay}% per day. Poor condition lowers occupancy and
-          rent.
-        </p>
-        <Button
-          className="mt-3 w-full"
-          variant="secondary"
-          disabled={pending || pr.condition >= 99}
-          onClick={() => run({ type: "maintain", inst }, "Maintenance done")}
-        >
-          Maintain · {money(maintCost)}
-        </Button>
       </Card>
-      <div className="mb-3 space-y-2">
+
+      <div className="space-y-1.5">
         {PROPERTY_UPGRADES.filter((u) => u.categories.includes(d.category)).map((u) => {
           const lvl = pr.upgrades[u.id] ?? 0;
           const cost = Math.round(d.price * u.costPct * Math.pow(1.5, lvl));
           const locked = u.research && !s.research.done.includes(u.research);
           return (
-            <Card key={u.id} className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-semibold">
+            <Card key={u.id} className="flex items-center justify-between gap-2 p-2.5">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold">
                   {u.name}{" "}
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     {lvl}/{u.max}
                   </span>
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="truncate text-[10px] text-muted-foreground">
                   {u.desc}
-                  {locked ? " · needs research" : ""}
+                  {locked ? " · requires R&D" : ""}
                 </div>
               </div>
               <Button
                 size="sm"
+                className="h-7 text-xs shrink-0"
                 disabled={pending || lvl >= u.max || !!locked || s.cash < cost}
                 onClick={() => run({ type: "propertyUpgrade", inst, upgradeId: u.id }, "Upgraded")}
               >
@@ -146,9 +174,9 @@ function PropertyPage() {
           );
         })}
       </div>
+
       <Card>
         <Row label="Purchase price" value={money(pr.price)} />
-        <Row label="Upgrade value" value={money(pr.upgradeValue)} />
         <Row label="Current value" value={money(value)} />
         <Row
           label="Resale payout (75%)"
@@ -158,16 +186,21 @@ function PropertyPage() {
         <Confirm
           destructive
           trigger={
-            <Button variant="destructive" className="mt-3 w-full" disabled={pending}>
-              Sell property
+            <Button
+              variant="destructive"
+              size="sm"
+              className="mt-2 w-full text-xs"
+              disabled={pending}
+            >
+              Sell Property
             </Button>
           }
           title="Sell this property?"
-          description={`You'll receive ${money(value * BALANCE.propertyResalePct)}. Rent stops immediately. This cannot be undone.`}
+          description={`Payout: ${money(value * BALANCE.propertyResalePct)}.`}
           confirmLabel="Sell"
           onConfirm={() =>
             run({ type: "sellProperty", inst }, "Property sold").then(() =>
-              navigate({ to: "/realestate" }),
+              navigate({ to: "/empire", search: { section: "realestate" } }),
             )
           }
         />

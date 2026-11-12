@@ -50,11 +50,11 @@ export function PageHeader({
   right?: ReactNode;
 }) {
   return (
-    <div className="game-page-header mb-4 flex min-w-0 items-end justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        <h1 className="game-page-title text-2xl font-bold">{title}</h1>
+    <div className="game-page-header mb-2 flex min-w-0 items-center justify-between gap-2">
+      <div className="min-w-0 flex-1 flex items-baseline gap-2">
+        <h1 className="game-page-title text-lg font-bold tracking-tight truncate">{title}</h1>
         {subtitle && (
-          <p className="game-page-subtitle mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
+          <p className="game-page-subtitle truncate text-xs text-muted-foreground">{subtitle}</p>
         )}
       </div>
       {right && <div className="shrink-0">{right}</div>}
@@ -75,7 +75,7 @@ export function Card({
     <div
       onClick={onClick}
       className={cn(
-        "game-panel rounded-lg border border-border bg-card p-4",
+        "game-panel rounded-lg border border-border bg-card p-3",
         onClick && "cursor-pointer active:scale-[0.99] transition",
         className,
       )}
@@ -97,11 +97,11 @@ export function Stat({
   tone?: "gain" | "loss" | "warn" | "primary";
 }) {
   return (
-    <div className="game-stat min-w-0 rounded-lg border border-border bg-card p-3">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+    <div className="game-stat min-w-0 rounded-lg border border-border bg-card p-2.5">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div
         className={cn(
-          "num mt-1 text-lg font-semibold",
+          "num mt-0.5 text-sm sm:text-base font-semibold",
           tone === "gain" && "text-gain",
           tone === "loss" && "text-loss",
           tone === "warn" && "text-warn",
@@ -110,7 +110,7 @@ export function Stat({
       >
         {value}
       </div>
-      {sub && <div className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</div>}
+      {sub && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{sub}</div>}
     </div>
   );
 }
@@ -125,11 +125,11 @@ export function Row({
   tone?: "gain" | "loss" | "warn";
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
+    <div className="flex items-center justify-between gap-3 py-1 text-xs sm:text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "num text-right",
+          "num text-right font-medium",
           tone === "gain" && "text-gain",
           tone === "loss" && "text-loss",
           tone === "warn" && "text-warn",
@@ -153,11 +153,11 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center game-panel rounded-lg border border-border px-6 py-10 text-center">
-      {icon && <div className="mb-3 text-muted-foreground">{icon}</div>}
-      <div className="font-semibold">{title}</div>
-      {text && <p className="mt-1 max-w-xs text-sm text-muted-foreground">{text}</p>}
-      {action && <div className="mt-4">{action}</div>}
+    <div className="flex flex-col items-center game-panel rounded-lg border border-border px-4 py-6 text-center">
+      {icon && <div className="mb-2 text-muted-foreground">{icon}</div>}
+      <div className="text-sm font-semibold">{title}</div>
+      {text && <p className="mt-1 max-w-xs text-xs text-muted-foreground">{text}</p>}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }
@@ -173,20 +173,23 @@ export function Loading() {
 export function Pill({
   children,
   tone = "muted",
+  className,
 }: {
   children: ReactNode;
   tone?: "muted" | "gain" | "loss" | "warn" | "primary" | "gold";
+  className?: string;
 }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium",
         tone === "muted" && "bg-muted text-muted-foreground",
         tone === "gain" && "bg-gain/15 text-gain",
         tone === "loss" && "bg-loss/15 text-loss",
         tone === "warn" && "bg-warn/15 text-warn",
         tone === "primary" && "bg-primary/15 text-primary",
         tone === "gold" && "bg-gold/15 text-gold",
+        className,
       )}
     >
       {children}
@@ -197,7 +200,7 @@ export function Pill({
 export function Progress({ value, className }: { value: number; className?: string }) {
   return (
     <div
-      className={cn("game-progress h-2.5 w-full overflow-hidden rounded-full bg-muted", className)}
+      className={cn("game-progress h-2 w-full overflow-hidden rounded-full bg-muted", className)}
     >
       <div
         className="h-full rounded-full bg-gradient-primary transition-all"
@@ -262,7 +265,7 @@ export type RangeId = (typeof RANGES)[number]["id"];
 
 export function RangeTabs({ value, onChange }: { value: RangeId; onChange: (v: RangeId) => void }) {
   return (
-    <div className="flex gap-1 rounded-lg bg-muted p-1">
+    <div className="flex gap-1 rounded-lg bg-muted p-0.5">
       {RANGES.map((r) => (
         <Button
           variant="ghost"
@@ -270,7 +273,7 @@ export function RangeTabs({ value, onChange }: { value: RangeId; onChange: (v: R
           key={r.id}
           onClick={() => onChange(r.id)}
           className={cn(
-            "flex-1 rounded-md px-2 py-1 text-xs font-medium",
+            "h-7 flex-1 rounded-md px-2 py-0.5 text-xs font-medium",
             value === r.id ? "game-button text-primary-foreground" : "text-muted-foreground",
           )}
         >
@@ -287,7 +290,7 @@ export function useRange(initial: RangeId = "24h") {
 
 export function MiniChart({
   data,
-  height = 140,
+  height = 120,
   format,
 }: {
   data: { t: number; v: number }[];
@@ -352,14 +355,14 @@ export function Segmented<T extends string>({
   options: { id: T; label: string }[];
 }) {
   return (
-    <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-muted p-1">
+    <div className="mb-2 flex gap-1 overflow-x-auto rounded-lg bg-muted p-1">
       {options.map((o) => (
         <Button
           variant="ghost"
           key={o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            "min-w-fit flex-1 rounded-lg px-3 py-2 text-sm font-medium transition",
+            "h-8 min-w-fit flex-1 rounded-md px-2.5 py-1 text-xs font-medium transition",
             value === o.id ? "game-button text-primary-foreground" : "text-muted-foreground",
           )}
         >
@@ -372,7 +375,7 @@ export function Segmented<T extends string>({
 
 export function ActionButton({ children, ...props }: React.ComponentProps<typeof Button>) {
   return (
-    <Button {...props} className={cn("h-10", props.className)}>
+    <Button {...props} className={cn("h-9 text-xs", props.className)}>
       {children}
     </Button>
   );

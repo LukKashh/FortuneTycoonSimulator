@@ -1,45 +1,45 @@
-import React from "react";
+import { useMemo } from "react";
 import { Wallet } from "lucide-react";
-import { useGame, useNow } from "@/hooks/use-game";
+import { useGame, useOptimisticTaps } from "@/hooks/use-game";
+import { clickBase, mult, personalMods } from "@/game/engine";
+import { corpMods } from "@/game/corp";
 import { money } from "@/lib/format";
-import { WALLET_REFRESH_MS } from "./wallet";
 import { cn } from "@/lib/utils";
 
 export interface PersonalBalanceBadgeProps {
   className?: string;
-  /** Whether to hide the 'Cash:' text label for tighter spaces */
   compact?: boolean;
+  /** Render inside the persistent AppShell top bar or a modal sheet header */
+  inline?: boolean;
 }
 
 /**
- * Small round corner frame window cell with yellow wallet icon followed by personal balance.
- * Fixed default box size with value rounded/formatted cleanly.
+ * Compact cash balance pill used in the unified AppShell top bar and purchase sheets.
+ * Legacy per-page calls without `inline` return null to avoid duplicate balance badges on screen.
  */
-export function PersonalBalanceBadge({ className, compact = false }: PersonalBalanceBadgeProps) {
+export function PersonalBalanceBadge({ className, inline = false }: PersonalBalanceBadgeProps) {
   const { data } = useGame();
-  const now = useNow(data?.offset ?? 0, WALLET_REFRESH_MS);
-  if (!data) return null;
-  const cash = data.state.cash;
+  const value = useMemo(() => {
+    if (!data) return 0;
+    const p = personalMods(data.state);
+    const cm = corpMods(data.corp);
+    return clickBase(data.state.clicker.level) * mult("clickPct", p, cm);
+  }, [data]);
+  const opt = useOptimisticTaps(data, value);
+
+  if (!inline || !data) return null;
+  const cash = data.state.cash + opt.cash;
 
   return (
     <div
       className={cn(
-        "game-panel inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-card/90 px-2.5 py-1 backdrop-blur-md shadow-xs shrink-0 w-[125px] sm:w-[155px] overflow-hidden justify-between",
+        "inline-flex items-center gap-1.5 rounded-lg border border-primary/35 bg-card/90 px-2.5 py-1 backdrop-blur-md shadow-xs shrink-0",
         className,
       )}
-      title={`Personal Balance: ${money(cash)}`}
+      title={`Cash Balance: ${money(cash)}`}
     >
-      <div className="flex items-center gap-1 shrink-0">
-        <Wallet className="h-3.5 w-3.5 text-gold shrink-0" />
-        {!compact && (
-          <span className="text-[10px] uppercase font-semibold text-muted-foreground shrink-0 hidden xs:inline">
-            Cash:
-          </span>
-        )}
-      </div>
-      <span className="num text-xs font-bold text-gain truncate text-right min-w-0 flex-1">
-        {money(cash)}
-      </span>
+      <Wallet className="h-3.5 w-3.5 text-gold shrink-0" />
+      <span className="num text-xs font-bold text-gain whitespace-nowrap">{money(cash)}</span>
     </div>
   );
 }

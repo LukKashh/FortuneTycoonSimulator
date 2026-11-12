@@ -15,9 +15,7 @@ import {
   Progress,
   Stat,
 } from "@/components/game/ui";
-import { art } from "@/components/game/art";
 import { Button } from "@/components/ui/button";
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
 
 export const Route = createFileRoute("/_authenticated/research")({
   head: () => ({
@@ -46,24 +44,17 @@ function ResearchPage() {
 
   if (!r.built)
     return (
-      <div>
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <PageHeader title="Research & Development" />
-          <PersonalBalanceBadge />
-        </div>
-        <img
-          src={art("research")}
-          alt="Research and development laboratory"
-          className="game-art mb-4 h-44 w-full"
-        />
+      <div className="space-y-2.5">
+        <PageHeader title="Research & Development" />
         <Empty
-          icon={<FlaskConical className="h-8 w-8" />}
-          title="Build your Research Department"
-          text={`A permanent one-time construction. Requires Player Level ${UNLOCKS.research} and ${money(BALANCE.research.buildCost)}. Generates ${BALANCE.research.rpPerHour} RP/hour, even while you're away.`}
+          icon={<FlaskConical className="h-6 w-6" />}
+          title="Build Research Department"
+          text={`Requires Level ${UNLOCKS.research} · ${money(BALANCE.research.buildCost)} · Generates ${BALANCE.research.rpPerHour} RP/h`}
           action={
             <Confirm
               trigger={
                 <Button
+                  size="sm"
                   disabled={
                     pending || s.level < UNLOCKS.research || s.cash < BALANCE.research.buildCost
                   }
@@ -83,34 +74,26 @@ function ResearchPage() {
     );
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <PageHeader
-          title="Research & Development"
-          subtitle="Projects can't be cancelled or refunded once started"
-        />
-        <PersonalBalanceBadge />
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <PageHeader title="Research & Development" />
+        {slotCost !== undefined && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={pending || s.cash < slotCost}
+            onClick={() => run({ type: "researchSlot" }, "Research slot added")}
+          >
+            +1 Slot · {money(slotCost)}
+          </Button>
+        )}
       </div>
-      <img
-        src={art("research")}
-        alt="Research and development laboratory"
-        className="game-art mb-4 h-40 w-full"
-      />
-      <div className="mb-4 grid grid-cols-3 gap-2">
-        <Stat label="Research points" value={Math.floor(r.rp).toLocaleString()} tone="primary" />
+      <div className="grid grid-cols-3 gap-2">
+        <Stat label="Research Points" value={Math.floor(r.rp).toLocaleString()} tone="primary" />
         <Stat label="RP / hour" value={rpRate.toFixed(0)} />
-        <Stat label="Slots" value={`${r.active.length}/${r.slots}`} />
+        <Stat label="Active Slots" value={`${r.active.length}/${r.slots}`} />
       </div>
-      {slotCost !== undefined && (
-        <Button
-          variant="secondary"
-          className="mb-4 w-full"
-          disabled={pending || s.cash < slotCost}
-          onClick={() => run({ type: "researchSlot" }, "Research slot added")}
-        >
-          Add research slot · {money(slotCost)}
-        </Button>
-      )}
       {r.active.length > 0 && (
         <div className="mb-4 space-y-2">
           {r.active.map((a) => {

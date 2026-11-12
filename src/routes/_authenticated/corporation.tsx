@@ -27,7 +27,6 @@ import {
   Segmented,
   Stat,
 } from "@/components/game/ui";
-import { art } from "@/components/game/art";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,34 +83,26 @@ function NoCorp({ data }: { data: GameData }) {
   };
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 space-y-2 mb-2">
-        <div className="flex justify-center">
-          <img src={art("elite")} alt="Corporation crest" className="h-16 w-24 object-contain" />
-        </div>
-        <PageHeader
-          title="Corporations"
-          subtitle="Cooperate with other players. Personal finances stay separate."
-        />
+      <div className="shrink-0 space-y-1.5 mb-2">
+        <PageHeader title="Corporations" />
         {cooldown && (
-          <Card className="border-warn/40 text-sm">
-            Membership cooldown: {duration(s.corp.cooldownUntil - now)} remaining.
+          <Card className="border-warn/40 text-xs py-2 px-3">
+            Cooldown: {duration(s.corp.cooldownUntil - now)} remaining.
           </Card>
         )}
         {s.corp.pending.length > 0 && (
-          <Card className="text-sm">
-            You have {s.corp.pending.length} pending application(s). You'll join automatically when
-            accepted.
-          </Card>
+          <Card className="text-xs py-2 px-3">{s.corp.pending.length} pending application(s).</Card>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0 space-y-3 pr-1">
-        <Card className="mb-4">
-          <div className="text-sm font-semibold">Found a corporation</div>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Requires Player Level {BALANCE.corp.minLevel} and a {money(BALANCE.corp.fee)} fee. You
-            become Founder.
-          </p>
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-2.5 pr-1">
+        <Card className="mb-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold">Found Corporation</span>
+            <span className="text-[10px] text-muted-foreground">
+              LV {BALANCE.corp.minLevel} · {money(BALANCE.corp.fee)}
+            </span>
+          </div>
           <div className="grid grid-cols-3 gap-2">
             <Input
               className="col-span-2 h-11"
@@ -259,15 +250,12 @@ function InCorp({ data, corp }: { data: GameData; corp: CorpView }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 space-y-2 mb-2">
-        <div className="flex justify-center">
-          <img src={art("elite")} alt="Corporation crest" className="h-14 w-20 object-contain" />
-        </div>
+      <div className="shrink-0 space-y-1.5 mb-1.5">
         <PageHeader
-          title={corp.name}
-          subtitle={`[${corp.tag}] · Level ${corp.level} · ${members.length}/${corpCapacity(corp)} members · You: ${corp.myRank}`}
+          title={`${corp.name} [${corp.tag}]`}
+          subtitle={`LV ${corp.level} · ${members.length}/${corpCapacity(corp)} · ${corp.myRank}`}
         />
-        <Progress value={corp.xp / corpLevelXp(corp.level)} className="mb-1" />
+        <Progress value={corp.xp / corpLevelXp(corp.level)} className="h-1.5" />
         <Segmented
           value={tab}
           onChange={setTab}
