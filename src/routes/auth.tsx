@@ -31,6 +31,7 @@ import {
   checkPlayerAccount,
   checkUsernameAvailability,
   createAccountWithUsername,
+  ensureInitialDatabaseWipe,
 } from "@/lib/game.functions";
 
 export const Route = createFileRoute("/auth")({
@@ -86,6 +87,13 @@ function AuthPage() {
       }
 
       try {
+        const wipeRes = await ensureInitialDatabaseWipe();
+        if (wipeRes.wiped) {
+          toast.success(
+            `Database reset complete (${wipeRes.deletedCount} records cleared). Please choose your username.`,
+          );
+        }
+
         const account = await checkPlayerAccount(user.uid);
         if (!active) return;
 
@@ -160,8 +168,9 @@ function AuthPage() {
             setUsernameError(res.error || "Username is already taken.");
           }
         });
-      } catch {
-        setUsernameStatus("idle");
+      } catch (err) {
+        setUsernameStatus("unavailable");
+        setUsernameError(err instanceof Error ? err.message : "Unable to verify username.");
       }
     }, 400);
 
@@ -174,6 +183,13 @@ function AuthPage() {
       const cred = await signInWithGoogle();
       const user = cred.user;
       setCurrentUser(user);
+
+      const wipeRes = await ensureInitialDatabaseWipe();
+      if (wipeRes.wiped) {
+        toast.success(
+          `Database reset complete (${wipeRes.deletedCount} records cleared). Please choose your username.`,
+        );
+      }
 
       // Verify if account already exists
       const account = await checkPlayerAccount(user.uid);

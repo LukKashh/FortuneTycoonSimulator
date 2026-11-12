@@ -247,7 +247,7 @@
         },
         "operation": {
           "type": "string",
-          "description": "Operation type (set-balance, add-balance, subtract-balance, grant-xp, set-xp, set-level)",
+          "description": "Operation type (set-balance, add-balance, subtract-balance, grant-xp, set-xp, set-level, wipe-database)",
           "maxLength": 32
         },
         "enteredAmount": {

@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { auth, onAuthStateChanged, type User } from "@/lib/firebase";
-import { checkPlayerAccount } from "@/lib/game.functions";
+import { checkPlayerAccount, ensureInitialDatabaseWipe } from "@/lib/game.functions";
 import { AppShell } from "@/components/game/AppShell";
 
 function LoadingScreen() {
@@ -35,6 +35,8 @@ export const Route = createFileRoute("/_authenticated")({
     })) as User | null;
 
     if (!user) throw redirect({ to: "/auth" });
+
+    await ensureInitialDatabaseWipe();
 
     const account = await checkPlayerAccount(user.uid);
     if (!account.exists) {

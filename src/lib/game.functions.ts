@@ -3,11 +3,14 @@ import {
   doc,
   getDoc,
   getDocs,
+  setDoc,
   collection,
   query,
   orderBy,
   limit,
   runTransaction,
+  writeBatch,
+  type DocumentReference,
 } from "firebase/firestore";
 import {
   apply,
@@ -117,6 +120,8 @@ async function run(
     }
 
     const state: PlayerState = row.state;
+    const immutableUsername = String(snapData.username || row.state.username);
+    state.username = immutableUsername;
     const version = row.version;
 
     let own = state.corp.id ? await loadCorp(state.corp.id) : null;
@@ -232,13 +237,7 @@ async function run(
           }
         }
 
-        const usernameLower =
-          state.username && state.username !== "GuestTycoon" && state.username !== "Player"
-            ? state.username.trim().toLowerCase()
-            : null;
-        const usernameRef = usernameLower ? doc(db, "usernames", usernameLower) : null;
-        const usernameSnap = usernameRef ? await tx.get(usernameRef) : null;
-        const stockRefs = ctx.stock.map((s) => doc(db, "collectible_stock", s.id));
+        const stockRefs = ctx.stock.map((s) => doc(db, "collectible_stock", s.item));
         const stockSnaps = await Promise.all(stockRefs.map((ref) => tx.get(ref)));
         const corpRef = corpOut ? doc(db, "corporations", corpOut.id) : null;
         const corpSnap = corpRef ? await tx.get(corpRef) : null;
@@ -258,24 +257,13 @@ async function run(
           const item = ctx.stock[i]!;
           const stockSnap = stockSnaps[i]!;
           const curSold = stockSnap.exists() ? ((stockSnap.data().sold as number) ?? 0) : 0;
-          if (item.limit && curSold + item.qty > item.limit) {
+          if (item.max && curSold + item.qty > item.max) {
             throw new Error("sold_out: This limited edition is sold out");
           }
         }
 
-        if (usernameLower && usernameRef) {
-          if (usernameSnap?.exists() && usernameSnap.data().userId !== uid) {
-            // Keep the existing collision fallback, but only after the original
-            // registry document has been read inside this transaction.
-            state.username = `${state.username}_${Math.floor(Math.random() * 9000 + 1000)}`;
-          }
-          const finalLower = state.username.trim().toLowerCase();
-          tx.set(doc(db, "usernames", finalLower), {
-            username: finalLower,
-            userId: uid,
-            createdAt: now,
-          });
-        }
+        // Username is permanently locked to the value set at onboarding.
+        state.username = immutableUsername;
 
         const calculatedNw = Math.max(0, Math.round(netWorth(state, now).total));
         const corpTag = own?.state
@@ -285,7 +273,7 @@ async function run(
             : null;
         const playerRecord = {
           userId: uid,
-          username: state.username || "Player",
+          username: immutableUsername,
           level: state.level || 1,
           netWorth: calculatedNw,
           liquid: state.cash + state.reservedCash,
@@ -348,7 +336,7 @@ async function run(
           const item = ctx.stock[i]!;
           const stockSnap = stockSnaps[i]!;
           const curSold = stockSnap.exists() ? ((stockSnap.data().sold as number) ?? 0) : 0;
-          tx.set(stockRefs[i]!, { itemId: item.id, sold: curSold + item.qty, updatedAt: now });
+          tx.set(stockRefs[i]!, { itemId: item.item, sold: curSold + item.qty, updatedAt: now });
         }
 
         return { duplicate: false as const, state };
@@ -556,6 +544,10 @@ export async function checkPlayerAccount(
   uid: string,
 ): Promise<{ exists: boolean; username?: string }> {
   try {
+    const user = await getCurrentUser();
+    if (user) {
+      await user.getIdToken();
+    }
     const snap = await getDoc(doc(db, "player_states", uid));
     if (!snap.exists()) return { exists: false };
     const data = snap.data();
@@ -601,11 +593,21 @@ export async function checkUsernameAvailability(
     return { available: false, error: "This username is reserved. Please choose another." };
   }
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { available: false, error: "Please sign in with Google first." };
+    }
+    await user.getIdToken();
     const snap = await getDoc(doc(db, "usernames", lower));
     if (snap.exists()) {
       const data = snap.data();
-      const user = await getCurrentUser();
-      if (user && data.userId === user.uid) {
+      const ownerUid = data.userId as string | undefined;
+      if (!ownerUid || ownerUid === user.uid) {
+        return { available: true };
+      }
+      // Check if the previous owner's public player record still exists
+      const ownerPubSnap = await getDoc(doc(db, "public_players", ownerUid));
+      if (!ownerPubSnap.exists()) {
         return { available: true };
       }
       return { available: false, error: "Username is already taken. Try another!" };
@@ -613,13 +615,17 @@ export async function checkUsernameAvailability(
     return { available: true };
   } catch (err) {
     console.warn("Could not check username registry:", err);
-    return { available: true };
+    return {
+      available: false,
+      error: "Unable to verify username availability right now. Please try again.",
+    };
   }
 }
 
 export async function createAccountWithUsername(chosenUsername: string) {
   const user = await getCurrentUser();
   if (!user) throw new Error("Please sign in with Google to create an account.");
+  await user.getIdToken(true);
 
   const validation = await checkUsernameAvailability(chosenUsername);
   if (!validation.available) {
@@ -633,59 +639,219 @@ export async function createAccountWithUsername(chosenUsername: string) {
   const usernameRef = doc(db, "usernames", lower);
   const publicPlayerRef = doc(db, "public_players", user.uid);
 
-  await runTransaction(db, async (tx) => {
-    const uSnap = await tx.get(usernameRef);
-    if (uSnap.exists() && uSnap.data().userId !== user.uid) {
-      throw new Error("This username was just claimed by another player. Please choose another.");
-    }
+  try {
+    await runTransaction(db, async (tx) => {
+      const uSnap = await tx.get(usernameRef);
+      const pSnap = await tx.get(playerRef);
 
-    const pSnap = await tx.get(playerRef);
-    let state: PlayerState;
-    let version = 1;
+      if (uSnap.exists() && uSnap.data().userId && uSnap.data().userId !== user.uid) {
+        const prevOwnerUid = String(uSnap.data().userId);
+        const prevOwnerSnap = await tx.get(doc(db, "public_players", prevOwnerUid));
+        if (prevOwnerSnap.exists()) {
+          throw new Error(
+            "This username was just claimed by another player. Please choose another.",
+          );
+        }
+      }
 
-    if (pSnap.exists()) {
-      const existingData = pSnap.data();
-      version = ((existingData.version as number) ?? 0) + 1;
-      state = existingData.state as PlayerState;
-      state.username = trimmed;
-    } else {
-      state = newPlayer(now, trimmed);
-    }
+      let state: PlayerState;
+      let version = 1;
 
-    const calculatedNw = Math.max(0, Math.round(netWorth(state, now).total));
-    const playerRecord = {
-      userId: user.uid,
-      username: trimmed,
-      level: state.level || 1,
-      netWorth: calculatedNw,
-      liquid: state.cash + state.reservedCash,
-      title: state.profile?.title || "Aspiring Tycoon",
-      avatar: state.profile?.avatar || "briefcase",
-      corpTag: null,
-      version,
-      state: state as unknown as Record<string, unknown>,
-      updatedAt: now,
-      recentActionKeys: [],
-    };
+      if (pSnap.exists()) {
+        const existingData = pSnap.data();
+        const existingUsername =
+          (existingData.username as string) || (existingData.state as PlayerState)?.username;
+        if (
+          existingUsername &&
+          existingUsername !== "GuestTycoon" &&
+          existingUsername !== "Player" &&
+          existingUsername !== trimmed
+        ) {
+          throw new Error("Your account already has a permanently assigned username.");
+        }
+        version = ((existingData.version as number) ?? 0) + 1;
+        state = existingData.state as PlayerState;
+        state.username = trimmed;
+      } else {
+        state = newPlayer(now, trimmed);
+      }
 
-    tx.set(usernameRef, {
-      username: lower,
-      userId: user.uid,
-      createdAt: now,
+      const calculatedNw = Math.max(0, Math.round(netWorth(state, now).total));
+      const playerRecord = {
+        userId: user.uid,
+        username: trimmed,
+        level: state.level || 1,
+        netWorth: calculatedNw,
+        liquid: state.cash + state.reservedCash,
+        title: state.profile?.title || "Aspiring Tycoon",
+        avatar: state.profile?.avatar || "briefcase",
+        corpTag: null,
+        version,
+        state: state as unknown as Record<string, unknown>,
+        updatedAt: now,
+        recentActionKeys: [],
+      };
+
+      tx.set(usernameRef, {
+        username: lower,
+        userId: user.uid,
+        createdAt: now,
+      });
+
+      tx.set(playerRef, playerRecord);
+
+      tx.set(publicPlayerRef, {
+        userId: user.uid,
+        username: trimmed,
+        level: playerRecord.level,
+        netWorth: playerRecord.netWorth,
+        corpTag: null,
+        corpId: null,
+        updatedAt: now,
+      });
     });
-
-    tx.set(playerRef, playerRecord);
-
-    tx.set(publicPlayerRef, {
-      userId: user.uid,
-      username: trimmed,
-      level: playerRecord.level,
-      netWorth: playerRecord.netWorth,
-      corpTag: null,
-      corpId: null,
-      updatedAt: now,
-    });
-  });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Missing or insufficient permissions")) {
+      handleFirestoreError(err, OperationType.WRITE, `player_states/${user.uid}`);
+    }
+    throw err;
+  }
 
   return { ok: true as const, username: trimmed };
+}
+
+const AUTHORIZED_ADMIN_EMAILS = new Set([
+  "puncisters@gmail.com",
+  "lukass16.ivanovs@gmail.com",
+  "lukass21.ivanovs@gmail.com",
+]);
+
+const WIPE_COLLECTIONS = [
+  "player_states",
+  "public_players",
+  "usernames",
+  "corporations",
+  "public_corporations",
+  "ledger",
+  "collectible_stock",
+] as const;
+
+export async function wipeAllRegisteredUsers(): Promise<{
+  ok: true;
+  deletedCount: number;
+  breakdown: Record<string, number>;
+}> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Administrator authentication required.");
+  await user.getIdToken(true);
+
+  const emailLower = user.email?.toLowerCase() ?? "";
+  const adminRef = doc(db, "admins", user.uid);
+  const adminSnap = await getDoc(adminRef);
+  if (!adminSnap.exists() && AUTHORIZED_ADMIN_EMAILS.has(emailLower)) {
+    await setDoc(adminRef, {
+      userId: user.uid,
+      email: emailLower,
+      role: "admin",
+      grantedAt: Date.now(),
+      initialWipeV1Done: true,
+    });
+  } else if (!adminSnap.exists()) {
+    throw new Error("Only authorized administrators can wipe the database.");
+  }
+
+  const refsToDelete: DocumentReference[] = [];
+  const breakdown: Record<string, number> = {};
+
+  for (const colName of WIPE_COLLECTIONS) {
+    const snap = await getDocs(collection(db, colName));
+    breakdown[colName] = snap.docs.length;
+    for (const d of snap.docs) {
+      refsToDelete.push(d.ref);
+    }
+  }
+
+  const BATCH_LIMIT = 400;
+  for (let i = 0; i < refsToDelete.length; i += BATCH_LIMIT) {
+    const chunk = refsToDelete.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    for (const ref of chunk) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+
+  const now = Date.now();
+  const auditRef = doc(db, "admin_audit", crypto.randomUUID());
+  await setDoc(auditRef, {
+    actorUid: user.uid,
+    actorEmail: emailLower || "admin@capitalfortune.local",
+    targetUid: "ALL_USERS",
+    targetUsername: "DATABASE_WIPE",
+    operation: "wipe-database",
+    enteredAmount: refsToDelete.length,
+    previousValue: refsToDelete.length,
+    resultingValue: 0,
+    previousLevel: 1,
+    resultingLevel: 1,
+    createdAt: now,
+  });
+
+  return {
+    ok: true as const,
+    deletedCount: refsToDelete.length,
+    breakdown,
+  };
+}
+
+let initialWipePromise: Promise<{ wiped: boolean; deletedCount: number }> | null = null;
+
+export async function ensureInitialDatabaseWipe(): Promise<{
+  wiped: boolean;
+  deletedCount: number;
+}> {
+  if (initialWipePromise) return initialWipePromise;
+
+  initialWipePromise = (async () => {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return { wiped: false, deletedCount: 0 };
+      await user.getIdToken();
+
+      const emailLower = user.email?.toLowerCase() ?? "";
+      const isEmailAdmin = AUTHORIZED_ADMIN_EMAILS.has(emailLower);
+      const adminRef = doc(db, "admins", user.uid);
+      const adminSnap = await getDoc(adminRef);
+
+      if (!isEmailAdmin && !adminSnap.exists()) {
+        return { wiped: false, deletedCount: 0 };
+      }
+
+      if (adminSnap.exists() && adminSnap.data()?.initialWipeV1Done === true) {
+        return { wiped: false, deletedCount: 0 };
+      }
+
+      await setDoc(
+        adminRef,
+        {
+          userId: user.uid,
+          email: emailLower,
+          role: "admin",
+          grantedAt: Date.now(),
+          initialWipeV1Done: true,
+        },
+        { merge: true },
+      );
+
+      const res = await wipeAllRegisteredUsers();
+      return { wiped: true, deletedCount: res.deletedCount };
+    } catch (err) {
+      console.warn("Initial database wipe check skipped:", err);
+      return { wiped: false, deletedCount: 0 };
+    } finally {
+      initialWipePromise = null;
+    }
+  })();
+
+  return initialWipePromise;
 }

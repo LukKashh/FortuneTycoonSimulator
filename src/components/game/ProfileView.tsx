@@ -1,4 +1,4 @@
-import { Briefcase, Crown, Gem, Rocket, ShieldCheck, Star, UserCheck } from "lucide-react";
+import { Briefcase, Crown, Gem, Lock, Rocket, ShieldCheck, Star, UserCheck } from "lucide-react";
 import { useGame, useAct, useNow } from "@/hooks/use-game";
 import { ACHIEVEMENTS } from "@/game/achievements";
 import { COLLECTIBLE_BY_ID } from "@/game/collectibles";
@@ -8,7 +8,6 @@ import { Card, GameImg, Loading, Pill, Progress, Row } from "@/components/game/u
 import { art, getPlayerTier } from "@/components/game/art";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -32,13 +31,11 @@ export function ProfileView() {
   const { run, pending } = useAct();
   const [title, setTitle] = useState("");
   const [bio, setBio] = useState("");
-  const [username, setUsername] = useState("");
 
   useEffect(() => {
     if (data) {
       setTitle(data.state.profile.title);
       setBio(data.state.profile.bio);
-      setUsername(data.state.username);
     }
   }, [data]);
 
@@ -193,24 +190,16 @@ export function ProfileView() {
           </Button>
         </div>
 
-        <div className="space-y-1 pt-2 border-t border-border/60">
-          <div className="text-xs font-medium text-foreground">Tycoon Username</div>
-          <div className="flex gap-2">
-            <Input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              maxLength={20}
-              className="h-8 text-xs flex-1"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              disabled={pending || username === s.username || username.length < 3}
-              onClick={() => run({ type: "setProfile", username }, "Username changed")}
-            >
-              Rename
-            </Button>
+        <div className="space-y-1.5 pt-2 border-t border-border/60">
+          <div className="flex items-center justify-between text-xs font-medium text-foreground">
+            <span>Tycoon Username</span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Lock className="h-3 w-3" /> Permanent
+            </span>
+          </div>
+          <div className="flex h-9 items-center justify-between rounded-lg border border-border/60 bg-background/60 px-3 text-xs font-mono text-foreground">
+            <span>@{s.username}</span>
+            <span className="text-[11px] font-sans text-muted-foreground">Assigned at signup</span>
           </div>
         </div>
       </Card>

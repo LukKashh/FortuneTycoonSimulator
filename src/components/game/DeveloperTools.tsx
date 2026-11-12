@@ -7,6 +7,7 @@ import {
   Globe,
   Monitor,
   ShieldCheck,
+  Trash2,
   UserRound,
   Users,
   RefreshCw,
@@ -15,7 +16,11 @@ import {
   WifiOff,
   Zap,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase";
+import { wipeAllRegisteredUsers } from "@/lib/game.functions";
 import { collection, doc, getDoc, getDocs, runTransaction, setDoc } from "firebase/firestore";
 import {
   Dialog,
@@ -103,6 +108,8 @@ function readPlayer(uid: string, data: Record<string, unknown>): PlayerRecord {
 }
 
 export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialogProps) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [viewport, setViewport] = useState("—");
   const [lookup, setLookup] = useState("");
@@ -110,6 +117,8 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
   const [playersLoading, setPlayersLoading] = useState(false);
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false);
+  const [wiping, setWiping] = useState(false);
   const [kind, setKind] = useState<AdjustmentKind>("set-balance");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -138,6 +147,7 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
       setPlayer(null);
       setPlayers([]);
       setConfirmOpen(false);
+      setWipeConfirmOpen(false);
       setAmount("");
       setNotice("");
       setError("");
@@ -158,6 +168,27 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load registered players.");
     } finally { setPlayersLoading(false); }
+  }
+
+  async function handleWipeDatabase() {
+    setWiping(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await wipeAllRegisteredUsers();
+      setPlayers([]);
+      setPlayer(null);
+      await qc.cancelQueries();
+      qc.clear();
+      toast.success(`Wiped ${res.deletedCount} records across all game collections.`);
+      setWipeConfirmOpen(false);
+      onOpenChange(false);
+      navigate({ to: "/auth", search: { setup: "true" }, replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Database wipe failed.");
+    } finally {
+      setWiping(false);
+    }
   }
 
   useEffect(() => {
@@ -425,7 +456,7 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-300"><Users className="h-4 w-4 text-violet-300" /> Registered users <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px]">{players.length}</span></div>
-                <Button type="button" variant="outline" size="sm" onClick={() => void loadPlayers()} disabled={playersLoading || busy} className="h-8 border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"><RefreshCw className="mr-2 h-3.5 w-3.5" /> Refresh</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadPlayers()} disabled={playersLoading || busy || wiping} className="h-8 border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"><RefreshCw className="mr-2 h-3.5 w-3.5" /> Refresh</Button>
               </div>
               <input className={fieldClass} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="Filter by username or Firebase UID" aria-label="Filter registered users" />
               <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-2">
@@ -481,13 +512,32 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
                 {kind === "set-level" && <p className="text-xs text-slate-500">Directly sets the player's level and resets current-level XP progress to 0.</p>}
                 {balanceOperation && <p className="text-xs text-slate-500">Only the player's wallet cash is changed. Bank deposits, loans and corporation funds remain untouched.</p>}
                 {xpOperation && <p className="text-xs text-slate-500">Direct XP adjustments do not create a wallet adjustment entry in the normal financial ledger.</p>}
-                <Button type="button" onClick={() => void applyAdjustment(false)} disabled={busy || amount.trim() === ""} className="w-full bg-violet-600 text-white hover:bg-violet-500">
+                <Button type="button" onClick={() => void applyAdjustment(false)} disabled={busy || wiping || amount.trim() === ""} className="w-full bg-violet-600 text-white hover:bg-violet-500">
                   <Zap className="mr-2 h-4 w-4" /> {busy ? "Applying…" : "Review and apply adjustment"}
                 </Button>
               </div>
             )}
             {notice && <p role="status" className="mt-3 rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs text-emerald-300">{notice}</p>}
             {error && <p role="alert" className="mt-3 rounded-lg border border-rose-400/20 bg-rose-400/10 p-3 text-xs text-rose-300">{error}</p>}
+          </section>
+
+          <section className="rounded-xl border border-rose-500/30 bg-rose-500/[0.05] p-4 sm:p-5">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-200">
+              <Trash2 className="h-4 w-4 text-rose-400" /> Database Reset & Registered User Wipe
+            </div>
+            <p className="mb-4 text-xs leading-relaxed text-slate-300">
+              Permanently deletes all registered player saves (<code className="font-mono text-rose-200">player_states</code>, <code className="font-mono text-rose-200">public_players</code>), claimed usernames (<code className="font-mono text-rose-200">usernames</code>), corporations, transaction ledgers, and collectible stock counters while preserving administrator privileges.
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setWipeConfirmOpen(true)}
+              disabled={busy || wiping}
+              className="w-full bg-rose-600 text-white hover:bg-rose-500"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              {wiping ? "Wiping Database…" : "Wipe All Registered Users & Reset Database"}
+            </Button>
           </section>
 
           <section className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
@@ -528,6 +578,20 @@ export function DeveloperToolsDialog({ open, onOpenChange }: DeveloperToolsDialo
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy} className="border-white/15 bg-white/5 text-white hover:bg-white/10">Cancel</AlertDialogCancel>
             <AlertDialogAction disabled={busy} onClick={(event) => { event.preventDefault(); void applyAdjustment(true); }} className="bg-violet-600 text-white hover:bg-violet-500">{busy ? "Applying…" : "Confirm & Apply"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={wipeConfirmOpen} onOpenChange={(next) => { if (!wiping) setWipeConfirmOpen(next); }}>
+        <AlertDialogContent className="border-rose-500/30 bg-[#151927] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-rose-200">Wipe All Registered Users & Reset Database?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-300">
+              This action permanently deletes all registered players, claimed usernames, corporations, financial ledgers, and collectible stock records from Cloud Firestore. You and all other players will be required to choose a new username upon next sign-in.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={wiping} className="border-white/15 bg-white/5 text-white hover:bg-white/10">Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={wiping} onClick={(event) => { event.preventDefault(); void handleWipeDatabase(); }} className="bg-rose-600 text-white hover:bg-rose-500">{wiping ? "Wiping Database…" : "Confirm Full Database Wipe"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

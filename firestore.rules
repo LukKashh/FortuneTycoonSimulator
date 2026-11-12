@@ -109,18 +109,27 @@ service cloud.firestore {
         && isValidPlayerState(incoming())
         && incoming().userId == userId;
       allow update: if (
-          (isOwner(userId) && (!('userId' in existing()) || existing().userId == userId))
+          (
+            isOwner(userId)
+            && (!('userId' in existing()) || existing().userId == userId)
+            && (
+              !('username' in existing())
+              || existing().username == incoming().username
+              || existing().username == "GuestTycoon"
+              || existing().username == "Player"
+            )
+          )
           || isAdmin()
         )
         && isValidPlayerState(incoming())
         && incoming().userId == userId;
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isOwner(userId);
     }
 
     // Minimal public leaderboard projection; never expose the private save payload.
     match /public_players/{userId} {
       allow get, list: if isSignedIn();
-      allow create, update: if isSignedIn()
+      allow create, update: if (isOwner(userId) || isAdmin())
         && incoming().userId == userId;
       allow delete: if isAdmin() || isOwner(userId);
     }
@@ -130,7 +139,7 @@ service cloud.firestore {
       allow get, list: if isSignedIn();
       allow create, update: if isSignedIn()
         && incoming().id == corpId;
-      allow delete: if isSignedIn();
+      allow delete: if isSignedIn() || isAdmin();
     }
 
     // Administrator adjustment audit trail (append-only for admins)
@@ -147,7 +156,7 @@ service cloud.firestore {
         && incoming().targetUid is string
         && incoming().targetUsername is string
         && incoming().operation in [
-          'set-balance', 'add-balance', 'subtract-balance', 'grant-xp', 'set-xp', 'set-level'
+          'set-balance', 'add-balance', 'subtract-balance', 'grant-xp', 'set-xp', 'set-level', 'wipe-database'
         ]
         && incoming().enteredAmount is number
         && incoming().previousValue is number
@@ -194,14 +203,26 @@ service cloud.firestore {
     // Unique username registry
     match /usernames/{usernameLower} {
       allow get, list: if isSignedIn();
-      allow create: if isSignedIn()
-        && isValidUsername(incoming())
-        && incoming().userId == request.auth.uid;
+      allow create: if (
+          isSignedIn()
+          && isValidUsername(incoming())
+          && incoming().userId == request.auth.uid
+        )
+        || isAdmin();
       allow update: if (
-          (isSignedIn() && isValidUsername(incoming()) && incoming().userId == request.auth.uid && (!('userId' in existing()) || existing().userId == request.auth.uid))
+          (
+            isSignedIn()
+            && isValidUsername(incoming())
+            && incoming().userId == request.auth.uid
+            && (
+              !('userId' in existing())
+              || existing().userId == request.auth.uid
+              || !exists(/databases/$(database)/documents/player_states/$(existing().userId))
+            )
+          )
           || isAdmin()
         );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
   }
 }

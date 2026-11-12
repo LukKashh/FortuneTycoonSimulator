@@ -1160,11 +1160,8 @@ export function apply(c: Ctx, a: Action) {
       break;
     }
     case "setProfile": {
-      if (a.username !== undefined) {
-        const u = a.username.trim();
-        if (!/^[A-Za-z0-9_]{3,20}$/.test(u))
-          throw new GameError("Username must be 3–20 letters, numbers or _");
-        s.username = u;
+      if (a.username !== undefined && a.username !== s.username) {
+        throw new GameError("Username is permanently locked after account creation");
       }
       if (a.title !== undefined) s.profile.title = a.title.slice(0, 40);
       if (a.bio !== undefined) s.profile.bio = a.bio.slice(0, 280);
