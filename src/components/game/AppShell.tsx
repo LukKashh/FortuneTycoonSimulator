@@ -11,7 +11,6 @@ import {
   Coins,
   FlaskConical,
   Maximize,
-  Menu,
   Minimize,
   LineChart,
   LogOut,
@@ -22,10 +21,7 @@ import {
   Code2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useGame, useOptimisticTaps } from "@/hooks/use-game";
-import { clickBase, mult, personalMods, xpForLevel } from "@/game/engine";
-import { corpMods } from "@/game/corp";
-import { getPlayerTier } from "./art";
+import { useGame } from "@/hooks/use-game";
 import { auth, logOut } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -42,18 +38,17 @@ import { Button } from "@/components/ui/button";
 import { Loading } from "./ui";
 import { OfflineReportDialog } from "./OfflineReport";
 import { checkDeveloperAccess, DeveloperToolsDialog } from "./DeveloperTools";
-import { PersonalBalanceBadge } from "./PersonalBalanceBadge";
 
 const NAV = [
-  { to: "/markets", label: "Trade-HUB", icon: LineChart, also: ["/collectibles"] },
-  { to: "/empire", label: "Empire", icon: Building2, also: ["/realestate"] },
+  { to: "/markets", label: "Asset Management", icon: LineChart, also: ["/collectibles"] },
+  { to: "/empire", label: "Empire Overview", icon: Building2, also: ["/realestate"] },
   { to: "/home", label: "Tap", icon: Coins, center: true },
+  { to: "/research", label: "R&D", icon: FlaskConical },
   { to: "/corporation", label: "Corp", icon: Briefcase },
-  { to: "/casino", label: "Casino", icon: Dices },
 ] as const;
 
 const MORE = [
-  { to: "/research", label: "Research & R&D", icon: FlaskConical },
+  { to: "/casino", label: "Casino", icon: Dices },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { to: "/achievements", label: "Achievements", icon: Award },
   { to: "/stats", label: "Statistics", icon: BarChart3 },
@@ -70,14 +65,6 @@ export function AppShell() {
   const [developerToolsOpen, setDeveloperToolsOpen] = useState(false);
   const qc = useQueryClient();
   const navigate = useNavigate();
-
-  const clickVal = useMemo(() => {
-    if (!data) return 0;
-    const p = personalMods(data.state);
-    const cm = corpMods(data.corp);
-    return clickBase(data.state.clicker.level) * mult("clickPct", p, cm);
-  }, [data]);
-  const opt = useOptimisticTaps(data, clickVal);
 
   useEffect(() => {
     let active = true;
@@ -139,62 +126,10 @@ export function AppShell() {
     );
   }
   const s = data.state;
-  const tierInfo = getPlayerTier(s.level);
-  const xpPct = Math.min(100, ((s.xp + opt.xp) / xpForLevel(s.level)) * 100);
 
   return (
     <MenuContext.Provider value={{ openMenu: () => setMenu(true) }}>
       <div className="game-shell flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        {/* Compact Unified Top Bar across all game screens */}
-        <header className="shrink-0 border-b border-border/60 bg-background/90 backdrop-blur-md z-20">
-          <div className="mx-auto flex h-12 w-full max-w-2xl items-center justify-between gap-2 px-3">
-            {/* Compact Player Identity Chip */}
-            <Link
-              to="/profile"
-              title="Profile & Settings"
-              className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/85 px-2 py-1 hover:border-primary/60 transition-colors min-w-0 max-w-[180px] sm:max-w-[220px]"
-            >
-              <div className="relative h-7 w-7 shrink-0 rounded-lg border border-primary-glow/60 bg-gradient-to-b from-primary/15 to-card/60 p-0.5 flex items-center justify-center overflow-hidden">
-                <img
-                  src={tierInfo.badgePath}
-                  alt={tierInfo.tierName}
-                  className="h-full w-full object-contain"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="truncate text-xs font-bold text-foreground">
-                    {s.username || "Tycoon"}
-                  </span>
-                  <span className="shrink-0 rounded bg-primary/15 px-1 py-0.2 text-[9px] font-mono font-bold text-primary-glow">
-                    LV {s.level}
-                  </span>
-                </div>
-                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-primary transition-all"
-                    style={{ width: `${xpPct}%` }}
-                  />
-                </div>
-              </div>
-            </Link>
-
-            {/* Right: Unified Cash Balance & Drawer Menu Button */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <PersonalBalanceBadge inline />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Menu"
-                onClick={() => setMenu(true)}
-                className="h-8 w-8 rounded-lg border border-border/60 bg-card/70 hover:bg-card"
-              >
-                <Menu className="game-icon h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </header>
-
         <main className="game-content mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-x-hidden overflow-y-auto px-3 pb-14 pt-2">
           <Outlet />
         </main>

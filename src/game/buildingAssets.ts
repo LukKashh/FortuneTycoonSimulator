@@ -222,34 +222,113 @@ export function getAssetForBusiness(defId: string): BuildingAssetDef {
 
   switch (normalized) {
     case "lemon":
-      return BUILDING_ASSET_BY_ID["BLD-001"]; // Lemonade Stand
+    case "newsstand":
+    case "flower":
+      return BUILDING_ASSET_BY_ID["BLD-001"]; // Lemonade Stand / Kiosk
     case "cafe":
     case "foodtruck":
-      return BUILDING_ASSET_BY_ID["BLD-002"]; // Cafe
+    case "smoothie":
+    case "bistro":
+    case "roastery":
+    case "brewery":
+      return BUILDING_ASSET_BY_ID["BLD-002"]; // Cafe / Hospitality
     case "bakery":
     case "retail":
+    case "barber":
+    case "printshop":
+    case "dryclean":
+    case "hardware":
+    case "pharmacy":
       return BUILDING_ASSET_BY_ID["BLD-003"]; // Retail Shop
     case "supermarket":
     case "vending":
-      return BUILDING_ASSET_BY_ID["BLD-004"]; // Supermarket
+    case "laundry":
+    case "daycare":
+    case "bowling":
+    case "cinema":
+      return BUILDING_ASSET_BY_ID["BLD-004"]; // Supermarket / Commercial Center
     case "studio":
     case "gym":
     case "clinic":
     case "arena":
+    case "tutoring":
+    case "cowork":
+    case "vet":
+    case "medspa":
+    case "cloudhost":
+    case "cybersec":
+    case "hospital_priv":
+    case "gamedev":
+    case "insurance_co":
+    case "biotech":
+    case "telecom":
+    case "hedgefund":
+    case "pharma_global":
+    case "cloud_hyper":
+    case "reinsurance":
+    case "quantum_comp":
+    case "payment_net":
+    case "gene_longevity":
+    case "global_exchange":
+    case "agi_research":
+    case "sovereign_wealth":
       return BUILDING_ASSET_BY_ID["BLD-005"]; // Office Building (Business)
     case "factory":
     case "aero":
+    case "recyclers":
+    case "glassworks":
+    case "textiles":
+    case "plastics":
+    case "solar_mfg":
+    case "chemlab":
+    case "steelworks":
+    case "battery_plant":
+    case "auto_ev":
+    case "chip_foundry":
+    case "defense_sys":
+    case "sat_const":
+    case "robotics_corp":
+    case "space_launch":
+    case "orbital_station":
       return BUILDING_ASSET_BY_ID["BLD-006"]; // Factory
     case "warehouse":
     case "logistics":
     case "carwash":
-      return BUILDING_ASSET_BY_ID["BLD-007"]; // Warehouse
+    case "dogwalk":
+    case "scooter":
+    case "courier":
+    case "autorepair":
+    case "security_co":
+    case "coldstore":
+    case "shipping_yard":
+    case "rail_freight":
+    case "cruise":
+    case "airline":
+    case "highspeed_rail":
+    case "supertanker":
+      return BUILDING_ASSET_BY_ID["BLD-007"]; // Warehouse / Fleet
     case "refinery":
-      return BUILDING_ASSET_BY_ID["BLD-008"]; // Refinery
+    case "energy":
+    case "wind_offshore":
+    case "lng_terminal":
+    case "petrochem":
+    case "nuclear_smr":
+    case "desalination":
+    case "fusion_grid":
+    case "orbital_solar":
+      return BUILDING_ASSET_BY_ID["BLD-008"]; // Refinery / Energy
     case "mine":
+    case "lithium":
+    case "gold_mine":
+    case "rare_earth":
+    case "undersea_mining":
+    case "lunar_helium":
       return BUILDING_ASSET_BY_ID["BLD-009"]; // Mine
     case "farm":
-      return BUILDING_ASSET_BY_ID["BLD-010"]; // Farm
+    case "vineyard":
+    case "fishery":
+    case "timber":
+      return BUILDING_ASSET_BY_ID["BLD-010"]; // Farm / Agriculture
     default:
       return BUILDING_ASSET_BY_ID["BLD-005"]; // Default Business Office
   }

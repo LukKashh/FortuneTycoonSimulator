@@ -99,7 +99,7 @@ export function newPlayer(now: number, username: string): PlayerState {
     companies: {},
     soldCompanies: [],
     capacity: { slots: BALANCE.capacity.initial, level: 0, upgrading: null },
-    research: { built: false, slots: 1, active: [], done: [], rp: 0, rpTotal: 0 },
+    research: { built: false, facilityLevel: 0, slots: 1, active: [], done: [], rp: 0, rpTotal: 0 },
     stocks: { holdings: {}, lastEvalTick: stockTick(now), lastDivDay: Math.floor(now / 86400_000) },
     crypto: { holdings: {}, lastEvalTick: cryptoTick(now) },
     orders: [],
@@ -146,7 +146,32 @@ export function reconcileState(s: PlayerState, now: number) {
   s.companies ||= {};
   s.soldCompanies ||= [];
   s.capacity ||= { slots: BALANCE.capacity.initial, level: 0, upgrading: null };
-  s.research ||= { built: false, slots: 1, active: [], done: [], rp: 0, rpTotal: 0 };
+  if (s.capacity.upgrading) {
+    s.capacity.upgrading = null;
+    s.capacity.slots += 1;
+    s.capacity.level += 1;
+  }
+  s.research ||= {
+    built: false,
+    facilityLevel: 0,
+    slots: 1,
+    active: [],
+    done: [],
+    rp: 0,
+    rpTotal: 0,
+  };
+  if (s.research.facilityLevel === undefined) {
+    s.research.facilityLevel = s.research.built ? Math.max(1, s.research.slots || 1) : 0;
+  }
+  if (s.research.built && s.research.facilityLevel === 0) {
+    s.research.facilityLevel = 1;
+  }
+  if (s.research.built) {
+    s.research.slots = Math.max(
+      s.research.slots || 1,
+      1 + Math.floor((s.research.facilityLevel || 1) / 3),
+    );
+  }
   s.stocks ||= {
     holdings: {},
     lastEvalTick: stockTick(now),
@@ -452,7 +477,8 @@ export function companySaleQuote(o: OwnedCompany, now: number) {
   rem -= fromUnc;
   const valuation = companyValuation(o) + reserves + uncollected;
   const payout = valuation * BALANCE.companyResalePct;
-  const eligibleAt = o.boughtAt + BALANCE.companyMinHoldHours * 3600_000;
+  const eligibleAt = o.boughtAt;
+  void now;
   return {
     termination,
     liabilities: o.liabilities,
@@ -463,7 +489,7 @@ export function companySaleQuote(o: OwnedCompany, now: number) {
     valuation,
     payout,
     eligibleAt,
-    eligible: now >= eligibleAt,
+    eligible: true,
   };
 }
 
@@ -720,10 +746,11 @@ function evaluateOrders(c: Ctx, p: GlobalMods) {
             m === "stock"
               ? stockPriceAtTick(def as StockDef, k)
               : cryptoPriceAtTick(def as CryptoDef, k);
-          const liq =
+          const baseLiq =
             m === "stock"
               ? stockLiquidity(def as StockDef, k)
               : cryptoLiquidity(def as CryptoDef, k);
+          const liq = baseLiq * (1 + (p.tradeLimitPct ?? 0));
           let ok = false;
           if (o.kind === "limit") ok = o.side === "buy" ? price <= o.limit! : price >= o.limit!;
           if (o.kind === "stop") {
@@ -927,9 +954,9 @@ export function tick(c: Ctx) {
   }
   const { rpGen } = simulateCompanies(c, dt, offline, report, p);
   const hours = dt / 3600_000;
-  const rp =
-    ((s.research.built ? BALANCE.research.rpPerHour * hours : 0) + rpGen) *
-    mult("rpPct", p, c.corpMods);
+  const facLvl = s.research.built ? Math.max(1, s.research.facilityLevel || 1) : 0;
+  const facilityRpPerHour = facLvl > 0 ? BALANCE.research.rpPerHour * (1 + (facLvl - 1) * 0.25) : 0;
+  const rp = (facilityRpPerHour * hours + rpGen) * mult("rpPct", p, c.corpMods);
   if (rp > 0) {
     s.research.rp += rp;
     s.research.rpTotal += rp;
@@ -1047,6 +1074,7 @@ export type Action =
   | { type: "suspend"; inst: string; on: boolean }
   | { type: "capacityUpgrade" }
   | { type: "buildResearch" }
+  | { type: "upgradeFacility" }
   | { type: "researchSlot" }
   | { type: "startResearch"; id: string }
   | {
@@ -1393,21 +1421,38 @@ export function apply(c: Ctx, a: Action) {
       break;
     }
     case "capacityUpgrade": {
-      if (s.capacity.upgrading) throw new GameError("A capacity upgrade is already running");
       const cost = capacityUpgradeCost(s.capacity.level);
       debit(c, cost, "capacity_upgrade", "game:business_management");
-      s.capacity.upgrading = {
-        endsAt: c.now + capacityUpgradeHours(s.capacity.level) * 3600_000,
-        cost,
-      };
+      s.capacity.upgrading = null;
+      s.capacity.slots += 1;
+      s.capacity.level += 1;
+      notify(c, "info", `Expanded company capacity to ${s.capacity.slots} slots.`);
       break;
     }
-    case "buildResearch": {
-      requireLevel(c, UNLOCKS.research, "Research Department");
-      if (s.research.built) throw new GameError("Already built");
-      debit(c, BALANCE.research.buildCost, "research_build", "game:research");
+    case "buildResearch":
+    case "upgradeFacility": {
+      requireLevel(c, UNLOCKS.research, "R&D Facility");
+      const curLvl = s.research.built ? Math.max(1, s.research.facilityLevel || 1) : 0;
+      if (a.type === "buildResearch" && s.research.built) {
+        throw new GameError("Already built");
+      }
+      if (curLvl >= BALANCE.research.facilityCosts.length) {
+        throw new GameError("R&D Facility is at maximum level");
+      }
+      const nextLvl = curLvl + 1;
+      const cost = BALANCE.research.facilityCosts[curLvl]!;
+      debit(
+        c,
+        cost,
+        curLvl === 0 ? "research_build" : "research_facility_upgrade",
+        "game:research",
+        `facility_lv${nextLvl}`,
+      );
       s.research.built = true;
-      gainXp(c, 100, p);
+      s.research.facilityLevel = nextLvl;
+      s.research.slots = Math.max(s.research.slots || 1, 1 + Math.floor(nextLvl / 3));
+      gainXp(c, 100 * nextLvl, p);
+      notify(c, "major", `R&D Facility upgraded to Level ${nextLvl}!`);
       break;
     }
     case "researchSlot": {
@@ -1422,6 +1467,9 @@ export function apply(c: Ctx, a: Action) {
       if (!s.research.built) throw new GameError("Build the Research Department first");
       const r = RESEARCH_BY_ID[a.id];
       if (!r) throw new GameError("Unknown project");
+      const facLvl = Math.max(1, s.research.facilityLevel || 1);
+      if (facLvl < (r.minFacilityLevel || 1))
+        throw new GameError(`Requires R&D Facility Level ${r.minFacilityLevel}`);
       if (s.research.done.includes(r.id) || s.research.active.some((x) => x.id === r.id))
         throw new GameError("Already researched or in progress");
       if (s.research.active.length >= s.research.slots)
@@ -1481,10 +1529,11 @@ export function apply(c: Ctx, a: Action) {
         avgPrice: 0,
       };
       if (a.kind === "market") {
-        const liq =
+        const baseLiq =
           a.market === "stock"
             ? stockLiquidity(def as StockDef, tk)
             : cryptoLiquidity(def as CryptoDef, tk);
+        const liq = baseLiq * (1 + (p.tradeLimitPct ?? 0));
         const q = Math.min(qty, a.market === "stock" ? Math.floor(liq) : liq);
         if (q <= 0) throw new GameError("No liquidity right now");
         fillOrder(c, o, q, price, fee);

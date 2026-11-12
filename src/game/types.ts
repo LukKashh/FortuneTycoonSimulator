@@ -81,6 +81,7 @@ export type PlayerState = {
   capacity: { slots: number; level: number; upgrading: { endsAt: number; cost: number } | null };
   research: {
     built: boolean;
+    facilityLevel?: number;
     slots: number;
     active: { id: string; endsAt: number }[];
     done: string[];

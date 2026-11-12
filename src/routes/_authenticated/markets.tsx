@@ -56,12 +56,15 @@ export const Route = createFileRoute("/_authenticated/markets")({
   }),
   head: () => ({
     meta: [
-      { title: "Trade-HUB — Stocks, Crypto & Assets · Capitalfortune" },
-      { name: "description", content: "Trade stocks, crypto, and luxury collectible assets." },
-      { property: "og:title", content: "Trade-HUB — Stocks, Crypto & Assets · Capitalfortune" },
+      { title: "Asset Management — Stocks, Crypto & Assets · Capitalfortune" },
+      { name: "description", content: "Manage stocks, crypto, and luxury collectible assets." },
+      {
+        property: "og:title",
+        content: "Asset Management — Stocks, Crypto & Assets · Capitalfortune",
+      },
       {
         property: "og:description",
-        content: "Trade stocks, crypto, and luxury collectible assets.",
+        content: "Manage stocks, crypto, and luxury collectible assets.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -84,9 +87,11 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
   const now = useNow(data?.offset ?? 0, 10_000);
   const { run, pending } = useAct();
   const [tab, setTab] = useState<HubTab>(initialTab);
-  const [showPortfolio, setShowPortfolio] = useState(false);
-  const [pf, setPf] = useState<HubTab>("stocks");
-  const [portfolioTab, setPortfolioTab] = useState<"holdings" | "orders">("holdings");
+
+  // Separate Menu Toggles for each domain (2.1 Stocks, 2.2 Crypto, 2.3 Assets)
+  const [stockMenu, setStockMenu] = useState<"market" | "portfolio">("market");
+  const [cryptoMenu, setCryptoMenu] = useState<"market" | "portfolio">("market");
+  const [assetMenu, setAssetMenu] = useState<"market" | "portfolio" | "collections">("market");
 
   useEffect(() => {
     setTab(initialTab);
@@ -110,7 +115,6 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
     queryFn: () => getCollectibleStock(),
     staleTime: 30_000,
   });
-  const [assetTab, setAssetTab] = useState<"market" | "inventory" | "collections">("market");
   const [cat, setCat] = useState("all");
   const [rarity, setRarity] = useState("all");
   const [edition, setEdition] = useState("all");
@@ -187,54 +191,52 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
   const inv = Object.values(s.collectibles);
   const ownedSet = new Set(inv.map((o) => o.itemId));
 
-  const holdings = [
-    ...Object.entries(s.stocks.holdings).map(([sym, h]) => {
-      const d = st.map[sym];
-      const p = d ? stockPriceAtTick(d, stockTick(now)) : 0;
-      const dy = d && d.dividendYield > 0 ? d.dividendYield : 0;
-      return {
-        market: "stock" as const,
-        sym,
-        name: d?.name ?? sym,
-        h,
-        value: h.qty * p,
-        pl: h.qty * p - h.cost,
-        dy,
-        divDay: (h.qty * p * dy) / 365,
-      };
-    }),
-    ...Object.entries(s.crypto.holdings).map(([sym, h]) => {
-      const d = cr.map[sym];
-      const p = d ? cryptoPriceAtTick(d, cryptoTick(now)) : 0;
-      return {
-        market: "crypto" as const,
-        sym,
-        name: d?.name ?? sym,
-        h,
-        value: h.qty * p,
-        pl: h.qty * p - h.cost,
-        dy: 0,
-        divDay: 0,
-      };
-    }),
-  ];
+  const stockHoldings = Object.entries(s.stocks.holdings).map(([sym, h]) => {
+    const d = st.map[sym];
+    const p = d ? stockPriceAtTick(d, stockTick(now)) : 0;
+    const dy = d && d.dividendYield > 0 ? d.dividendYield : 0;
+    return {
+      market: "stock" as const,
+      sym,
+      name: d?.name ?? sym,
+      h,
+      value: h.qty * p,
+      pl: h.qty * p - h.cost,
+      dy,
+      divDay: (h.qty * p * dy) / 365,
+    };
+  });
+
+  const cryptoHoldings = Object.entries(s.crypto.holdings).map(([sym, h]) => {
+    const d = cr.map[sym];
+    const p = d ? cryptoPriceAtTick(d, cryptoTick(now)) : 0;
+    return {
+      market: "crypto" as const,
+      sym,
+      name: d?.name ?? sym,
+      h,
+      value: h.qty * p,
+      pl: h.qty * p - h.cost,
+    };
+  });
+
+  const stocksTotalVal = stockHoldings.reduce((t, h) => t + h.value, 0);
+  const stocksTotalPl = stockHoldings.reduce((t, h) => t + h.pl, 0);
+  const stocksDivDay = stockHoldings.reduce((t, h) => t + h.divDay, 0);
+  const stockOrders = s.orders.filter((o) => o.market === "stock");
+
+  const cryptoTotalVal = cryptoHoldings.reduce((t, h) => t + h.value, 0);
+  const cryptoTotalPl = cryptoHoldings.reduce((t, h) => t + h.pl, 0);
+  const cryptoOrders = s.orders.filter((o) => o.market === "crypto");
 
   const assetsTotalValue = inv.reduce((acc, o) => {
     const it = COLLECTIBLE_BY_ID[o.itemId];
     return acc + (it ? currentValue(it, now) : o.price);
   }, 0);
-  const shown = holdings.filter((h) => h.market === (pf === "stocks" ? "stock" : "crypto"));
-  const sum = (a: typeof holdings) => a.reduce((t, h) => t + h.value, 0);
-  const walletTotal = sum(holdings) + assetsTotalValue;
-  const typeTotal = pf === "assets" ? assetsTotalValue : sum(shown);
-  const typePl =
-    pf === "assets"
-      ? inv.reduce((acc, o) => {
-          const it = COLLECTIBLE_BY_ID[o.itemId];
-          return acc + ((it ? currentValue(it, now) : o.price) - o.price);
-        }, 0)
-      : shown.reduce((t, h) => t + h.pl, 0);
-  const divDay = shown.reduce((t, h) => t + h.divDay, 0);
+  const assetsTotalPl = inv.reduce((acc, o) => {
+    const it = COLLECTIBLE_BY_ID[o.itemId];
+    return acc + ((it ? currentValue(it, now) : o.price) - o.price);
+  }, 0);
 
   const activeRows = tab === "stocks" ? rows.stocks : rows.crypto;
   const totalPages = Math.max(1, Math.ceil(activeRows.length / pageSize));
@@ -243,123 +245,163 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Top Bar: 3-Way Domain Switcher (Stocks | Crypto | Assets) + Compact Portfolio Button */}
+      {/* Asset Management Gateway Selector */}
       <div className="shrink-0 space-y-1.5 mb-1.5">
-        <div className="flex items-center gap-1.5">
-          <div className="grid flex-1 grid-cols-3 gap-1 rounded-xl border border-border/80 bg-card/85 p-1">
-            {(
-              [
-                { id: "stocks", label: "Stocks", icon: LineChart },
-                { id: "crypto", label: "Crypto", icon: LineChart },
-                { id: "assets", label: "Assets", icon: Gem },
-              ] as const
-            ).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setTab(item.id);
-                  setPage(1);
-                }}
-                className={`flex items-center justify-center gap-1 rounded-lg py-1.5 px-2 text-xs font-bold transition ${
-                  tab === item.id
-                    ? "bg-gradient-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <item.icon className="h-3.5 w-3.5 shrink-0" />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <Button
-            variant={showPortfolio ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowPortfolio(!showPortfolio)}
-            className="h-9 shrink-0 gap-1.5 rounded-xl border-primary/40 bg-card/85 px-2.5 text-xs font-semibold"
-          >
-            <Wallet className="h-3.5 w-3.5 text-gold" />
-            <span>Portfolio</span>
-          </Button>
+        <div className="flex items-center justify-between px-0.5">
+          <h1 className="text-sm font-extrabold tracking-tight text-foreground">
+            Asset Management
+          </h1>
+          <span className="text-[10px] font-medium text-muted-foreground">
+            {tab === "stocks"
+              ? "Equities & Dividends"
+              : tab === "crypto"
+                ? "24/7 Digital Tokens"
+                : "Luxury Collectibles"}
+          </span>
         </div>
 
-        {/* Stocks & Crypto Header Filters */}
-        {tab !== "assets" && (
-          <>
-            {s.level < (tab === "stocks" ? UNLOCKS.stocks : UNLOCKS.crypto) && (
-              <Card className="flex items-center gap-2 border-warn/40 py-1.5 px-2.5 text-xs">
-                <Lock className="h-3.5 w-3.5 text-warn shrink-0" />
-                <span>Unlocks at Level {tab === "stocks" ? UNLOCKS.stocks : UNLOCKS.crypto}.</span>
-              </Card>
-            )}
-
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5 text-xs no-scrollbar">
-                {(tab === "stocks"
-                  ? [
-                      { id: "growth" as const, label: "Gainers" },
-                      { id: "dip" as const, label: "Losers" },
-                      { id: "dividends" as const, label: "Dividends" },
-                      { id: "marketCapDesc" as const, label: "Large Cap" },
-                      { id: "marketCapAsc" as const, label: "Small Cap" },
-                    ]
-                  : [
-                      { id: "growth" as const, label: "Gainers" },
-                      { id: "dip" as const, label: "Losers" },
-                      { id: "stables" as const, label: "Stable" },
-                      { id: "volatility" as const, label: "Volatile" },
-                    ]
-                ).map((f) => {
-                  const isActive = tab === "stocks" ? stockFilter === f.id : cryptoFilter === f.id;
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => {
-                        if (tab === "stocks") setStockFilter(f.id as StockFilter);
-                        else setCryptoFilter(f.id as CryptoFilter);
-                        setPage(1);
-                      }}
-                      className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
-                        isActive
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  );
-                })}
+        {/* Gateway Domain Switcher: Stocks | Crypto | Assets */}
+        <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-border/80 bg-card/85 p-1">
+          {(
+            [
+              {
+                id: "stocks",
+                label: "Stocks",
+                sub: `${stockHoldings.length} owned`,
+                icon: LineChart,
+              },
+              {
+                id: "crypto",
+                label: "Crypto",
+                sub: `${cryptoHoldings.length} owned`,
+                icon: Wallet,
+              },
+              {
+                id: "assets",
+                label: "Assets",
+                sub: `${inv.length} owned`,
+                icon: Gem,
+              },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setTab(item.id);
+                setPage(1);
+              }}
+              className={`flex flex-col items-center justify-center rounded-lg py-1.5 px-2 transition ${
+                tab === item.id
+                  ? "bg-gradient-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-1 text-xs font-bold">
+                <item.icon className="h-3.5 w-3.5 shrink-0" />
+                <span>{item.label}</span>
               </div>
-              <span className="shrink-0 text-[10px] text-muted-foreground hidden sm:inline">
-                {tab === "stocks"
-                  ? `IPO: ${upcoming.name} (${duration(upcoming.at - now)})`
-                  : "24/7 Live"}
+              <span
+                className={`text-[9px] font-mono ${
+                  tab === item.id ? "text-primary-foreground/85" : "text-muted-foreground"
+                }`}
+              >
+                {item.sub}
               </span>
-            </div>
-          </>
+            </button>
+          ))}
+        </div>
+
+        {/* 2.1 Stock Menu Toggle */}
+        {tab === "stocks" && (
+          <Segmented
+            value={stockMenu}
+            onChange={setStockMenu}
+            options={[
+              { id: "market", label: "Market Listings" },
+              {
+                id: "portfolio",
+                label: `Portfolio of Owned (${stockHoldings.length})`,
+              },
+            ]}
+          />
         )}
 
-        {/* Assets (Collectibles) Sub-Navigation */}
+        {/* 2.2 Crypto Menu Toggle */}
+        {tab === "crypto" && (
+          <Segmented
+            value={cryptoMenu}
+            onChange={setCryptoMenu}
+            options={[
+              { id: "market", label: "Market Listings" },
+              {
+                id: "portfolio",
+                label: `Portfolio of Owned (${cryptoHoldings.length})`,
+              },
+            ]}
+          />
+        )}
+
+        {/* 2.3 Assets Menu Toggle */}
         {tab === "assets" && (
           <Segmented
-            value={assetTab}
-            onChange={setAssetTab}
+            value={assetMenu}
+            onChange={setAssetMenu}
             options={[
-              { id: "market", label: "Marketplace" },
-              { id: "inventory", label: `Owned (${inv.length})` },
+              { id: "market", label: "Market Listings" },
+              { id: "portfolio", label: `Portfolio of Owned (${inv.length})` },
               { id: "collections", label: "Sets" },
             ]}
           />
         )}
       </div>
 
-      {/* STOCKS & CRYPTO LISTINGS */}
-      {tab !== "assets" && (
+      {/* 2.1 STOCKS HOME SCREEN */}
+      {tab === "stocks" && (
         <GameScrollContainer>
-          {tab === "stocks"
-            ? (pagedRows as typeof rows.stocks).map((r) => (
+          {stockMenu === "market" ? (
+            <>
+              {s.level < UNLOCKS.stocks && (
+                <Card className="mb-1.5 flex items-center gap-2 border-warn/40 py-1.5 px-2.5 text-xs">
+                  <Lock className="h-3.5 w-3.5 text-warn shrink-0" />
+                  <span>Unlocks at Level {UNLOCKS.stocks}.</span>
+                </Card>
+              )}
+
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+                  {(
+                    [
+                      { id: "growth" as const, label: "Gainers" },
+                      { id: "dip" as const, label: "Losers" },
+                      { id: "dividends" as const, label: "Dividends" },
+                      { id: "marketCapDesc" as const, label: "Large Cap" },
+                      { id: "marketCapAsc" as const, label: "Small Cap" },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        setStockFilter(f.id);
+                        setPage(1);
+                      }}
+                      className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                        stockFilter === f.id
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="shrink-0 text-[10px] text-muted-foreground hidden sm:inline">
+                  IPO: {upcoming.name} ({duration(upcoming.at - now)})
+                </span>
+              </div>
+
+              {(pagedRows as typeof rows.stocks).map((r) => (
                 <div
                   key={r.s.ticker}
                   onClick={() => setSelectedAsset({ market: "stock", sym: r.s.ticker })}
@@ -386,8 +428,200 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
                     </div>
                   </div>
                 </div>
-              ))
-            : (pagedRows as typeof rows.crypto).map((r) => (
+              ))}
+
+              {totalPages > 1 && (
+                <div className="mt-2 mb-1 flex items-center justify-between border-t border-border/60 pt-2 px-1 text-xs">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="h-7 gap-1 px-2.5 text-xs"
+                  >
+                    Prev
+                  </Button>
+                  <div className="font-mono text-muted-foreground text-[11px]">
+                    <span className="font-bold text-foreground">{currentPage}</span> / {totalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-7 gap-1 px-2.5 text-xs"
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2.5">
+              <Card className="border-primary/35 bg-card/90 p-2.5">
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground">Equities Value</div>
+                    <div className="num text-sm font-bold text-foreground">
+                      {money(stocksTotalVal)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground">Unrealized P/L</div>
+                    <div
+                      className={`num text-sm font-bold ${stocksTotalPl >= 0 ? "text-gain" : "text-loss"}`}
+                    >
+                      {money(stocksTotalPl, { sign: true })}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-muted-foreground">Dividends /d</div>
+                    <div className="num text-sm font-bold text-gain">{money(stocksDivDay)}</div>
+                  </div>
+                </div>
+              </Card>
+
+              {stockHoldings.length === 0 ? (
+                <Empty
+                  title="No stocks owned"
+                  text="Buy shares from the Stock Market Listings to build your equity portfolio."
+                  action={
+                    <Button size="sm" onClick={() => setStockMenu("market")}>
+                      Browse Stock Listings
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  {stockHoldings.map((h) => (
+                    <Card
+                      key={h.sym}
+                      onClick={() => setSelectedAsset({ market: "stock", sym: h.sym })}
+                      className="flex cursor-pointer items-center justify-between p-2.5 hover:border-primary/40 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold">
+                          <span>{h.sym}</span>
+                          <span className="truncate text-[10px] font-normal text-muted-foreground">
+                            {h.name}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {h.h.qty.toLocaleString()} shares · Div {money(h.divDay)}/d
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="num text-xs sm:text-sm font-semibold">{money(h.value)}</div>
+                        <div className={`num text-[10px] ${h.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                          {money(h.pl, { sign: true })}
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {stockOrders.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-muted-foreground">
+                    <ListOrdered className="h-3.5 w-3.5" />
+                    <span>Stock Orders ({stockOrders.length})</span>
+                  </div>
+                  {stockOrders.map((o) => (
+                    <Card key={o.id} className="p-2 text-xs">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-semibold text-xs">
+                            {o.side.toUpperCase()} {o.sym}{" "}
+                            <span className="text-[10px] font-normal text-muted-foreground">
+                              {o.kind}
+                              {o.limit ? ` @ ${price(o.limit)}` : ""}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {o.filled.toLocaleString()}/{o.qty.toLocaleString()} ·{" "}
+                            {date(o.createdAt)}
+                          </div>
+                        </div>
+                        <Pill
+                          tone={
+                            o.status === "Executed"
+                              ? "gain"
+                              : o.status === "Cancelled" || o.status === "Expired"
+                                ? "muted"
+                                : "primary"
+                          }
+                        >
+                          {o.status}
+                        </Pill>
+                      </div>
+                      {(o.status === "Open" ||
+                        o.status === "Partially Filled" ||
+                        o.status === "Triggered") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="mt-1.5 h-6 text-[10px]"
+                          disabled={pending}
+                          onClick={() => run({ type: "cancelOrder", id: o.id }, "Order cancelled")}
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </GameScrollContainer>
+      )}
+
+      {/* 2.2 CRYPTO HOME SCREEN */}
+      {tab === "crypto" && (
+        <GameScrollContainer>
+          {cryptoMenu === "market" ? (
+            <>
+              {s.level < UNLOCKS.crypto && (
+                <Card className="mb-1.5 flex items-center gap-2 border-warn/40 py-1.5 px-2.5 text-xs">
+                  <Lock className="h-3.5 w-3.5 text-warn shrink-0" />
+                  <span>Unlocks at Level {UNLOCKS.crypto}.</span>
+                </Card>
+              )}
+
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+                  {(
+                    [
+                      { id: "growth" as const, label: "Gainers" },
+                      { id: "dip" as const, label: "Losers" },
+                      { id: "stables" as const, label: "Stable" },
+                      { id: "volatility" as const, label: "Volatile" },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        setCryptoFilter(f.id);
+                        setPage(1);
+                      }}
+                      className={`shrink-0 rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                        cryptoFilter === f.id
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="shrink-0 text-[10px] text-muted-foreground hidden sm:inline">
+                  24/7 Live
+                </span>
+              </div>
+
+              {(pagedRows as typeof rows.crypto).map((r) => (
                 <div
                   key={r.c.symbol}
                   onClick={() => setSelectedAsset({ market: "crypto", sym: r.c.symbol })}
@@ -413,38 +647,154 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
                 </div>
               ))}
 
-          {totalPages > 1 && (
-            <div className="mt-2 mb-1 flex items-center justify-between border-t border-border/60 pt-2 px-1 text-xs">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="h-7 gap-1 px-2.5 text-xs"
-              >
-                Prev
-              </Button>
-              <div className="font-mono text-muted-foreground text-[11px]">
-                <span className="font-bold text-foreground">{currentPage}</span> / {totalPages}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="h-7 gap-1 px-2.5 text-xs"
-              >
-                Next
-              </Button>
+              {totalPages > 1 && (
+                <div className="mt-2 mb-1 flex items-center justify-between border-t border-border/60 pt-2 px-1 text-xs">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="h-7 gap-1 px-2.5 text-xs"
+                  >
+                    Prev
+                  </Button>
+                  <div className="font-mono text-muted-foreground text-[11px]">
+                    <span className="font-bold text-foreground">{currentPage}</span> / {totalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    className="h-7 gap-1 px-2.5 text-xs"
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2.5">
+              <Card className="border-primary/35 bg-card/90 p-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground">Crypto Portfolio Value</div>
+                    <div className="num text-sm font-bold text-foreground">
+                      {money(cryptoTotalVal)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-muted-foreground">Unrealized P/L</div>
+                    <div
+                      className={`num text-sm font-bold ${cryptoTotalPl >= 0 ? "text-gain" : "text-loss"}`}
+                    >
+                      {money(cryptoTotalPl, { sign: true })}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              {cryptoHoldings.length === 0 ? (
+                <Empty
+                  title="No crypto owned"
+                  text="Acquire digital tokens from the Crypto Market Listings."
+                  action={
+                    <Button size="sm" onClick={() => setCryptoMenu("market")}>
+                      Browse Crypto Listings
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  {cryptoHoldings.map((h) => (
+                    <Card
+                      key={h.sym}
+                      onClick={() => setSelectedAsset({ market: "crypto", sym: h.sym })}
+                      className="flex cursor-pointer items-center justify-between p-2.5 hover:border-primary/40 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold">
+                          <span>{h.sym}</span>
+                          <span className="truncate text-[10px] font-normal text-muted-foreground">
+                            {h.name}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {h.h.qty.toLocaleString(undefined, { maximumFractionDigits: 6 })} units
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="num text-xs sm:text-sm font-semibold">{money(h.value)}</div>
+                        <div className={`num text-[10px] ${h.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                          {money(h.pl, { sign: true })}
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {cryptoOrders.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-muted-foreground">
+                    <ListOrdered className="h-3.5 w-3.5" />
+                    <span>Crypto Orders ({cryptoOrders.length})</span>
+                  </div>
+                  {cryptoOrders.map((o) => (
+                    <Card key={o.id} className="p-2 text-xs">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-semibold text-xs">
+                            {o.side.toUpperCase()} {o.sym}{" "}
+                            <span className="text-[10px] font-normal text-muted-foreground">
+                              {o.kind}
+                              {o.limit ? ` @ ${price(o.limit)}` : ""}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {o.filled.toLocaleString(undefined, { maximumFractionDigits: 4 })}/
+                            {o.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })} ·{" "}
+                            {date(o.createdAt)}
+                          </div>
+                        </div>
+                        <Pill
+                          tone={
+                            o.status === "Executed"
+                              ? "gain"
+                              : o.status === "Cancelled" || o.status === "Expired"
+                                ? "muted"
+                                : "primary"
+                          }
+                        >
+                          {o.status}
+                        </Pill>
+                      </div>
+                      {(o.status === "Open" ||
+                        o.status === "Partially Filled" ||
+                        o.status === "Triggered") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="mt-1.5 h-6 text-[10px]"
+                          disabled={pending}
+                          onClick={() => run({ type: "cancelOrder", id: o.id }, "Order cancelled")}
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </GameScrollContainer>
       )}
 
-      {/* ASSETS (COLLECTIBLES) VIEW */}
+      {/* 2.3 ASSETS (COLLECTIBLES) HOME SCREEN */}
       {tab === "assets" && (
         <GameScrollContainer>
-          {assetTab === "market" &&
+          {assetMenu === "market" &&
             (() => {
               const totalAssetPages = Math.max(1, Math.ceil(assetItems.length / assetPageSize));
               const curAssetPage = Math.min(assetPage, totalAssetPages);
@@ -599,54 +949,78 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
               );
             })()}
 
-          {assetTab === "inventory" &&
-            (inv.length === 0 ? (
-              <Empty
-                title="No assets owned"
-                text="Acquire luxury collectibles from the marketplace."
-                action={
-                  <Button size="sm" onClick={() => setAssetTab("market")}>
-                    Browse Assets
-                  </Button>
-                }
-              />
-            ) : (
-              <div className="space-y-1.5">
-                {inv.map((o) => {
-                  const it = COLLECTIBLE_BY_ID[o.itemId]!;
-                  const v = currentValue(it, now);
-                  return (
-                    <Link key={o.inst} to="/collectibles/$id" params={{ id: it.id }}>
-                      <Card className="mb-1.5 flex items-center gap-2.5 p-2.5 hover:border-primary/40 transition-colors">
-                        <CollectibleIcon
-                          category={it.category}
-                          rarity={it.rarity}
-                          className="h-10 w-10 shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs sm:text-sm font-semibold">{it.name}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Paid {money(o.price)} ·{" "}
-                            {now < o.holdUntil
-                              ? `Hold ${duration(o.holdUntil - now)}`
-                              : it.restrictedResale
-                                ? "Restricted"
-                                : "Sellable"}
-                          </div>
-                        </div>
-                        <div
-                          className={`num text-xs sm:text-sm font-semibold ${v >= o.price ? "text-gain" : "text-loss"}`}
-                        >
-                          {money(v)}
-                        </div>
-                      </Card>
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
+          {assetMenu === "portfolio" && (
+            <div className="space-y-2.5">
+              <Card className="border-primary/35 bg-card/90 p-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground">Owned Assets Valuation</div>
+                    <div className="num text-sm font-bold text-foreground">
+                      {money(assetsTotalValue)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-muted-foreground">Unrealized P/L</div>
+                    <div
+                      className={`num text-sm font-bold ${assetsTotalPl >= 0 ? "text-gain" : "text-loss"}`}
+                    >
+                      {money(assetsTotalPl, { sign: true })}
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
-          {assetTab === "collections" && (
+              {inv.length === 0 ? (
+                <Empty
+                  title="No assets owned"
+                  text="Acquire luxury collectibles from the Assets Market Listings."
+                  action={
+                    <Button size="sm" onClick={() => setAssetMenu("market")}>
+                      Browse Market Listings
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  {inv.map((o) => {
+                    const it = COLLECTIBLE_BY_ID[o.itemId]!;
+                    const v = currentValue(it, now);
+                    return (
+                      <Link key={o.inst} to="/collectibles/$id" params={{ id: it.id }}>
+                        <Card className="mb-1.5 flex items-center gap-2.5 p-2.5 hover:border-primary/40 transition-colors">
+                          <CollectibleIcon
+                            category={it.category}
+                            rarity={it.rarity}
+                            className="h-10 w-10 shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs sm:text-sm font-semibold">
+                              {it.name}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              Paid {money(o.price)} ·{" "}
+                              {now < o.holdUntil
+                                ? `Hold ${duration(o.holdUntil - now)}`
+                                : it.restrictedResale
+                                  ? "Restricted"
+                                  : "Sellable"}
+                            </div>
+                          </div>
+                          <div
+                            className={`num text-xs sm:text-sm font-semibold ${v >= o.price ? "text-gain" : "text-loss"}`}
+                          >
+                            {money(v)}
+                          </div>
+                        </Card>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {assetMenu === "collections" && (
             <div className="space-y-2">
               {COLLECTIONS.map((col) => {
                 const have = col.items.filter((i) => ownedSet.has(i)).length;
@@ -682,187 +1056,6 @@ export function TradeHubScreen({ initialTab = "stocks" }: { initialTab?: HubTab 
           )}
         </GameScrollContainer>
       )}
-
-      {/* Unified Private Portfolio & Orders Modal */}
-      <Dialog open={showPortfolio} onOpenChange={setShowPortfolio}>
-        <DialogContent className="max-w-md bg-card border-primary/45 p-4 max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-sm sm:text-base font-bold flex items-center justify-between pr-4">
-              <span>Portfolio &amp; Orders</span>
-              <span className="num text-xs font-bold text-gain">{money(walletTotal)}</span>
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={portfolioTab === "holdings" ? "secondary" : "ghost"}
-                  onClick={() => setPortfolioTab("holdings")}
-                  className="h-7 text-xs font-semibold px-2.5"
-                >
-                  Holdings ({holdings.length + inv.length})
-                </Button>
-                <Button
-                  size="sm"
-                  variant={portfolioTab === "orders" ? "secondary" : "ghost"}
-                  onClick={() => setPortfolioTab("orders")}
-                  className="h-7 text-xs font-semibold px-2.5 gap-1"
-                >
-                  <ListOrdered className="h-3.5 w-3.5" />
-                  Orders ({s.orders.length})
-                </Button>
-              </div>
-            </div>
-
-            {portfolioTab === "holdings" ? (
-              <div>
-                <Segmented
-                  value={pf}
-                  onChange={setPf}
-                  options={[
-                    { id: "stocks", label: "Stocks" },
-                    { id: "crypto", label: "Crypto" },
-                    { id: "assets", label: `Assets (${inv.length})` },
-                  ]}
-                />
-                <div className="my-2 flex items-center justify-between rounded-lg bg-muted/30 px-2.5 py-2 text-xs">
-                  <div>
-                    <div className="text-[10px] text-muted-foreground">Category Value</div>
-                    <div className="num font-semibold">{money(typeTotal)}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] text-muted-foreground">
-                      {pf === "stocks" ? `Div ${money(divDay)}/d · P/L` : "Unrealized P/L"}
-                    </div>
-                    <div className={`num font-semibold ${typePl >= 0 ? "text-gain" : "text-loss"}`}>
-                      {money(typePl, { sign: true })}
-                    </div>
-                  </div>
-                </div>
-
-                {pf === "assets" ? (
-                  inv.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">
-                      No collectible assets owned.
-                    </p>
-                  ) : (
-                    <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
-                      {inv.map((o) => {
-                        const it = COLLECTIBLE_BY_ID[o.itemId]!;
-                        const v = currentValue(it, now);
-                        return (
-                          <Link
-                            key={o.inst}
-                            to="/collectibles/$id"
-                            params={{ id: it.id }}
-                            onClick={() => setShowPortfolio(false)}
-                            className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5 hover:bg-muted/40"
-                          >
-                            <span className="truncate text-xs font-semibold">{it.name}</span>
-                            <span
-                              className={`num text-xs font-semibold ${v >= o.price ? "text-gain" : "text-loss"}`}
-                            >
-                              {money(v)}
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )
-                ) : shown.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-muted-foreground">
-                    No {pf} owned yet.
-                  </p>
-                ) : (
-                  <div className="max-h-56 space-y-1.5 overflow-y-auto overscroll-contain pr-1">
-                    {shown.map((h) => (
-                      <div
-                        key={h.market + h.sym}
-                        onClick={() => {
-                          setShowPortfolio(false);
-                          setSelectedAsset({ market: h.market, sym: h.sym });
-                        }}
-                        className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1.5 hover:bg-muted/40 transition-colors cursor-pointer"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-semibold text-xs">{h.sym}</div>
-                          <div className="truncate text-[10px] text-muted-foreground">
-                            {h.h.qty.toLocaleString(undefined, { maximumFractionDigits: 6 })} units
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="num text-xs font-semibold">{money(h.value)}</div>
-                          <div
-                            className={`num text-[10px] ${h.pl >= 0 ? "text-gain" : "text-loss"}`}
-                          >
-                            {money(h.pl, { sign: true })}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="max-h-60 overflow-y-auto overscroll-contain pr-1 space-y-1.5">
-                {s.orders.length === 0 ? (
-                  <Empty title="No orders" text="Active and past orders appear here." />
-                ) : (
-                  s.orders.map((o) => (
-                    <div
-                      key={o.id}
-                      className="rounded-lg border border-border/60 bg-muted/20 p-2 text-xs"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="font-semibold text-xs">
-                            {o.side.toUpperCase()} {o.sym}{" "}
-                            <span className="text-[10px] font-normal text-muted-foreground">
-                              {o.kind}
-                              {o.limit ? ` @ ${price(o.limit)}` : ""}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {o.filled.toLocaleString(undefined, { maximumFractionDigits: 4 })}/
-                            {o.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })} ·{" "}
-                            {date(o.createdAt)}
-                          </div>
-                        </div>
-                        <Pill
-                          tone={
-                            o.status === "Executed"
-                              ? "gain"
-                              : o.status === "Cancelled" || o.status === "Expired"
-                                ? "muted"
-                                : "primary"
-                          }
-                        >
-                          {o.status}
-                        </Pill>
-                      </div>
-                      {(o.status === "Open" ||
-                        o.status === "Partially Filled" ||
-                        o.status === "Triggered") && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-1 h-6 text-[10px]"
-                          disabled={pending}
-                          onClick={() => run({ type: "cancelOrder", id: o.id }, "Order cancelled")}
-                        >
-                          Cancel
-                        </Button>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Asset Inspect Dialog */}
       <Dialog open={!!selectedAsset} onOpenChange={(o) => !o && setSelectedAsset(null)}>

@@ -43,8 +43,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
-
 export const Route = createFileRoute("/_authenticated/empire_/$inst")({
   head: () => ({
     meta: [
@@ -102,7 +100,6 @@ function CompanyPage() {
             Back to Empire
           </Link>
           <div className="flex items-center gap-2 shrink-0">
-            <PersonalBalanceBadge />
             <Pill
               tone={
                 e.status === "Profitable"
@@ -470,15 +467,10 @@ function CompanyPage() {
             <div className="mt-1 border-t border-border pt-2">
               <Row label="You receive (80%)" value={money(q.payout)} tone="gain" />
             </div>
-            {!q.eligible && (
-              <p className="mt-2 text-xs text-warn">
-                Sellable in {duration(q.eligibleAt - now)} (6-hour minimum ownership).
-              </p>
-            )}
             <Button
               variant="destructive"
               className="mt-3 w-full"
-              disabled={!q.eligible || pending}
+              disabled={pending}
               onClick={() => setSaleStep(1)}
             >
               Review sale

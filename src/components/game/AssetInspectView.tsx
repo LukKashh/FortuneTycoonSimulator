@@ -32,7 +32,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { OrderKind } from "@/game/types";
-import { PersonalBalanceBadge } from "@/components/game/PersonalBalanceBadge";
 
 export function AssetInspectView({
   market,
@@ -87,14 +86,18 @@ export function AssetInspectView({
   const p = isStock
     ? stockPriceAtTick(sd!, stockTick(now))
     : cryptoPriceAtTick(cd!, cryptoTick(now));
-  const fee = feePct(isStock ? "stock" : "crypto", personalMods(s), corpMods(data.corp));
+  const pMods = personalMods(s);
+  const fee = feePct(isStock ? "stock" : "crypto", pMods, corpMods(data.corp));
   const h = (isStock ? s.stocks.holdings : s.crypto.holdings)[sym];
   const q = Number(qty) || 0;
   const execPrice = kind === "market" ? p : Number(limit) || p;
   const gross = q * execPrice;
   const feeAmt = gross * fee;
   const locked = s.level < (isStock ? UNLOCKS.stocks : UNLOCKS.crypto);
-  const liq = isStock ? stockLiquidity(sd!, stockTick(now)) : cryptoLiquidity(cd!, cryptoTick(now));
+  const baseLiq = isStock
+    ? stockLiquidity(sd!, stockTick(now))
+    : cryptoLiquidity(cd!, cryptoTick(now));
+  const liq = baseLiq * (1 + (pMods.tradeLimitPct ?? 0));
 
   const kinds: { id: OrderKind; label: string }[] = isStock
     ? [
@@ -143,7 +146,6 @@ export function AssetInspectView({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <PersonalBalanceBadge />
             <div className="num text-xl font-bold">{price(p)}</div>
           </div>
         </div>
@@ -155,9 +157,8 @@ export function AssetInspectView({
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
-              Markets
+              Asset Management
             </Link>
-            <PersonalBalanceBadge />
           </div>
           <div className="mb-2 flex items-baseline justify-between">
             <div>
