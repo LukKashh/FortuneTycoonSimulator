@@ -1,5 +1,6 @@
 import type { StatKey } from "./achievements";
 import type { CasinoState } from "./casino";
+import type { AssetGrade } from "./collectibles";
 
 export type OrderKind = "market" | "limit" | "stop" | "tp";
 export type OrderStatus =
@@ -62,6 +63,13 @@ export type Notification = {
   text: string;
 };
 
+export type GradingReport = {
+  at: number;
+  fee: number;
+  totalUnits: number;
+  byItem: Record<string, { name: string; total: number; counts: Record<string, number> }>;
+};
+
 export type PlayerState = {
   v: 1;
   username: string;
@@ -88,7 +96,13 @@ export type PlayerState = {
     rp: number;
     rpTotal: number;
   };
-  stocks: { holdings: Record<string, Holding>; lastEvalTick: number; lastDivDay: number };
+  stocks: {
+    holdings: Record<string, Holding>;
+    lastEvalTick: number;
+    lastDivDay: number;
+    lastDivHour?: number;
+    uncollectedDividends?: number;
+  };
   crypto: { holdings: Record<string, Holding>; lastEvalTick: number };
   orders: Order[];
   properties: Record<
@@ -109,9 +123,17 @@ export type PlayerState = {
   soldProperties: { name: string; soldAt: number; payout: number }[];
   collectibles: Record<
     string,
-    { inst: string; itemId: string; boughtAt: number; price: number; holdUntil: number }
+    {
+      inst: string;
+      itemId: string;
+      boughtAt: number;
+      price: number;
+      holdUntil: number;
+      rarity?: AssetGrade;
+    }
   >;
   collectibleSales: { itemId: string; soldAt: number; price: number; payout: number }[];
+  lastGradingReport?: GradingReport | null;
   collectionsRewarded: string[];
   achievements: Record<string, { at: number; cycle?: number }>;
   stats: Record<StatKey, number>;
@@ -161,7 +183,16 @@ export type PlayerState = {
     lastShiftAt: number;
     joinedAt: number;
   };
-  profile: { title: string; bio: string; avatar: string; theme: string; featured: string | null };
+  profile: {
+    title: string;
+    bio: string;
+    avatar: string;
+    theme: string;
+    featured: string | null;
+    ownedAvatars?: string[];
+    bioUpdatedAt?: number;
+    bioCooldownUntil?: number;
+  };
   tax: {
     liability: number;
     periodIncome: {

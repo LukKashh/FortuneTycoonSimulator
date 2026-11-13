@@ -1,63 +1,78 @@
 import { GlobalMods } from "./config";
-import { hashStr, mulberry, wave } from "./rng";
+import { hashStr, mulberry } from "./rng";
 
-export const RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythical"] as const;
+export const RARITIES = [
+  "Common",
+  "Uncommon",
+  "Rare",
+  "Very Rare",
+  "Epic",
+  "Legendary",
+  "Mythical",
+  "Divine",
+] as const;
 export type Rarity = (typeof RARITIES)[number];
+export type AssetGrade = Rarity | "Ungraded";
+
+export const GRADING_FEE_PCT = 0.075; // 7.5% flat fee per graded asset
+
+/** Normalized batch grading odds summing to 100%. */
 export const RARITY_DIST: Record<Rarity, number> = {
-  Common: 0.42,
-  Uncommon: 0.27,
-  Rare: 0.16,
-  Epic: 0.09,
-  Legendary: 0.045,
-  Mythical: 0.015,
+  Common: 0.48,
+  Uncommon: 0.25,
+  Rare: 0.1275,
+  "Very Rare": 0.0725,
+  Epic: 0.04,
+  Legendary: 0.02,
+  Mythical: 0.0085,
+  Divine: 0.0015,
 };
-const RARITY_MULT: Record<Rarity, number> = {
-  Common: 1,
-  Uncommon: 3,
-  Rare: 10,
-  Epic: 40,
-  Legendary: 200,
-  Mythical: 1500,
+
+/** Fixed resale/valuation boost added to an asset's base unit value based on graded rarity. */
+export const RARITY_VALUE_BONUS: Record<Rarity, number> = {
+  Common: 0,
+  Uncommon: 0.03,
+  Rare: 0.05,
+  "Very Rare": 0.09,
+  Epic: 0.15,
+  Legendary: 0.225,
+  Mythical: 0.35,
+  Divine: 0.7,
 };
-export const RESALE_PCT: Record<Rarity, number> = {
-  Common: 0.7,
-  Uncommon: 0.72,
-  Rare: 0.75,
-  Epic: 0.78,
-  Legendary: 0.8,
-  Mythical: 0.85,
+
+/** Portfolio global stat bonus multiplier scaled from graded rarity. */
+export const RARITY_STAT_BONUS: Record<Rarity, number> = {
+  Common: 0,
+  Uncommon: 0.0275,
+  Rare: 0.033,
+  "Very Rare": 0.0415,
+  Epic: 0.0525,
+  Legendary: 0.0675,
+  Mythical: 0.095,
+  Divine: 0.15,
 };
-export const HOLD_HOURS: Record<Rarity, number> = {
-  Common: 1,
-  Uncommon: 3,
-  Rare: 6,
-  Epic: 12,
-  Legendary: 24,
-  Mythical: 72,
-};
+
+export const RESALE_PCT = 0.85;
+export const HOLD_HOURS = 1;
 
 type CatDef = {
   id: string;
   name: string;
   base: number;
   count: number;
-  updateHours: number;
-  volatility: number;
   bonus: keyof GlobalMods | null;
-  bonusScale: number;
   subs: string[];
   words: string[];
 };
+
+/** 9 categories (Luxury Properties removed), 12–16 items per category = 120 items total. */
 export const CATEGORIES: CatDef[] = [
   {
     id: "vehicles",
     name: "Vehicles",
     base: 20_000,
-    count: 45,
-    updateHours: 6,
-    volatility: 0.12,
+    count: 16,
     bonus: "businessPct",
-    bonusScale: 0.004,
     subs: ["Sports car", "Classic", "SUV", "Supercar"],
     words: [
       "Viper",
@@ -75,63 +90,15 @@ export const CATEGORIES: CatDef[] = [
       "Bolt",
       "Corsair",
       "Duke",
-    ],
-  },
-  {
-    id: "aircraft",
-    name: "Aircraft",
-    base: 400_000,
-    count: 20,
-    updateHours: 12,
-    volatility: 0.1,
-    bonus: "offlineHours",
-    bonusScale: 0.25,
-    subs: ["Light jet", "Helicopter", "Business jet"],
-    words: [
-      "Skyhawk",
-      "Albatross",
-      "Condor",
-      "Swift",
-      "Gulf",
-      "Falcon",
-      "Heron",
-      "Osprey",
-      "Zephyr",
-      "Kite",
-    ],
-  },
-  {
-    id: "yachts",
-    name: "Yachts",
-    base: 900_000,
-    count: 20,
-    updateHours: 12,
-    volatility: 0.1,
-    bonus: "rentPct",
-    bonusScale: 0.005,
-    subs: ["Sailing yacht", "Motor yacht", "Superyacht"],
-    words: [
-      "Serenity",
-      "Odyssey",
-      "Poseidon",
-      "Marlin",
-      "Coral",
-      "Neptune",
-      "Siren",
-      "Tide",
-      "Atlantis",
-      "Breeze",
+      "Apex",
     ],
   },
   {
     id: "watches",
     name: "Watches",
     base: 5_000,
-    count: 40,
-    updateHours: 6,
-    volatility: 0.08,
+    count: 16,
     bonus: "clickPct",
-    bonusScale: 0.005,
     subs: ["Dress", "Diver", "Chronograph", "Tourbillon"],
     words: [
       "Regent",
@@ -144,17 +111,20 @@ export const CATEGORIES: CatDef[] = [
       "Sovereign",
       "Orbit",
       "Pilot",
+      "Horizonte",
+      "Chronos",
+      "Vanguard",
+      "Monarch",
+      "Zenith",
+      "Valiant",
     ],
   },
   {
     id: "paintings",
     name: "Paintings",
     base: 15_000,
-    count: 40,
-    updateHours: 24,
-    volatility: 0.15,
+    count: 14,
     bonus: "xpPct",
-    bonusScale: 0.004,
     subs: ["Impressionist", "Modern", "Renaissance", "Abstract"],
     words: [
       "Twilight",
@@ -167,63 +137,18 @@ export const CATEGORIES: CatDef[] = [
       "Mountains",
       "Nocturne",
       "Bloom",
-    ],
-  },
-  {
-    id: "stamps",
-    name: "Stamps",
-    base: 500,
-    count: 35,
-    updateHours: 24,
-    volatility: 0.06,
-    bonus: "rpPct",
-    bonusScale: 0.006,
-    subs: ["Victorian", "Airmail", "Error print"],
-    words: [
-      "Penny",
-      "Blue",
-      "Crown",
-      "Eagle",
-      "Jubilee",
-      "Post",
-      "Inverted",
-      "Empire",
-      "Liberty",
-      "Rose",
-    ],
-  },
-  {
-    id: "antiques",
-    name: "Antiques",
-    base: 3_000,
-    count: 30,
-    updateHours: 24,
-    volatility: 0.07,
-    bonus: "rentPct",
-    bonusScale: 0.004,
-    subs: ["Furniture", "Porcelain", "Clock"],
-    words: [
-      "Ming",
-      "Louis",
-      "Regency",
-      "Baroque",
-      "Tudor",
-      "Georgian",
-      "Rococo",
-      "Empire",
-      "Gothic",
-      "Victorian",
+      "Solstice",
+      "Horizon",
+      "Mirage",
+      "Cascade",
     ],
   },
   {
     id: "jewelry",
     name: "Jewelry",
     base: 8_000,
-    count: 30,
-    updateHours: 12,
-    volatility: 0.07,
+    count: 14,
     bonus: "feeCut",
-    bonusScale: 0.01,
     subs: ["Ring", "Necklace", "Tiara"],
     words: [
       "Starlight",
@@ -236,44 +161,124 @@ export const CATEGORIES: CatDef[] = [
       "Duchess",
       "Eternity",
       "Celeste",
+      "Radiant",
+      "Imperial",
+      "Lumina",
+      "Velvet",
+    ],
+  },
+  {
+    id: "stamps",
+    name: "Stamps",
+    base: 500,
+    count: 12,
+    bonus: "rpPct",
+    subs: ["Victorian", "Airmail", "Error print"],
+    words: [
+      "Penny",
+      "Blue",
+      "Crown",
+      "Eagle",
+      "Jubilee",
+      "Post",
+      "Inverted",
+      "Empire",
+      "Liberty",
+      "Rose",
+      "Regent",
+      "Hermes",
+    ],
+  },
+  {
+    id: "antiques",
+    name: "Antiques",
+    base: 3_000,
+    count: 12,
+    bonus: "rentPct",
+    subs: ["Furniture", "Porcelain", "Clock"],
+    words: [
+      "Ming",
+      "Louis",
+      "Regency",
+      "Baroque",
+      "Tudor",
+      "Georgian",
+      "Rococo",
+      "Empire",
+      "Gothic",
+      "Victorian",
+      "Byzantine",
+      "Venetian",
     ],
   },
   {
     id: "nfts",
     name: "NFTs",
     base: 1_000,
-    count: 25,
-    updateHours: 3,
-    volatility: 0.3,
+    count: 12,
     bonus: "clickPct",
-    bonusScale: 0.004,
     subs: ["Generative", "Pixel art", "3D"],
-    words: ["Ape", "Punk", "Glitch", "Voxel", "Cyber", "Neon", "Meme", "Pixel", "Void", "Drift"],
+    words: [
+      "Ape",
+      "Punk",
+      "Glitch",
+      "Voxel",
+      "Cyber",
+      "Neon",
+      "Meme",
+      "Pixel",
+      "Void",
+      "Drift",
+      "Prism",
+      "Pulse",
+    ],
   },
   {
-    id: "luxprop",
-    name: "Luxury Properties",
-    base: 2_000_000,
-    count: 15,
-    updateHours: 24,
-    volatility: 0.05,
-    bonus: "businessPct",
-    bonusScale: 0.006,
-    subs: ["Château", "Island", "Ranch"],
+    id: "aircraft",
+    name: "Aircraft",
+    base: 400_000,
+    count: 12,
+    bonus: "offlineHours",
+    subs: ["Light jet", "Helicopter", "Business jet"],
     words: [
-      "Bellevue",
-      "Montclair",
-      "Silverlake",
-      "Rosewood",
-      "Eden",
-      "Highcliff",
-      "Lakeshore",
-      "Avalon",
-      "Crestview",
-      "Ivory",
+      "Skyhawk",
+      "Albatross",
+      "Condor",
+      "Swift",
+      "Gulf",
+      "Falcon",
+      "Heron",
+      "Osprey",
+      "Zephyr",
+      "Kite",
+      "Nimbus",
+      "Stratos",
+    ],
+  },
+  {
+    id: "yachts",
+    name: "Yachts",
+    base: 900_000,
+    count: 12,
+    bonus: "rentPct",
+    subs: ["Sailing yacht", "Motor yacht", "Superyacht"],
+    words: [
+      "Serenity",
+      "Odyssey",
+      "Poseidon",
+      "Marlin",
+      "Coral",
+      "Neptune",
+      "Siren",
+      "Tide",
+      "Atlantis",
+      "Breeze",
+      "Horizon",
+      "Valhalla",
     ],
   },
 ];
+
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 
 export type CollectibleDef = {
@@ -281,85 +286,106 @@ export type CollectibleDef = {
   name: string;
   category: string;
   sub: string;
-  rarity: Rarity;
   price: number;
   baseValue: number;
-  limited: number | null; // global max copies
+  bonusKey: keyof GlobalMods | null;
+  limited: number | null;
   releaseAt: number | null;
-  restrictedResale: boolean;
-  bonus: { key: keyof GlobalMods; value: number } | null;
 };
-
-const RELEASE_EPOCH = Date.UTC(2026, 10, 1);
-function pickRarity(x: number): Rarity {
-  let acc = 0;
-  for (const r of RARITIES) {
-    acc += RARITY_DIST[r];
-    if (x < acc) return r;
-  }
-  return "Common";
-}
 
 function build(): CollectibleDef[] {
   const out: CollectibleDef[] = [];
-  let limitedIdx = 0;
   for (const cat of CATEGORIES) {
-    const r = mulberry(hashStr("cat-" + cat.id));
+    const r = mulberry(hashStr("cat-v2-" + cat.id));
     for (let i = 0; i < cat.count; i++) {
-      const rarity = pickRarity(r());
-      const sub = cat.subs[i % cat.subs.length];
-      const word = cat.words[i % cat.words.length];
-      const series = Math.floor(i / cat.words.length) + 1;
-      const value = Math.round(cat.base * RARITY_MULT[rarity] * (0.7 + r() * 0.6));
-      const limited = rarity === "Legendary" || rarity === "Mythical" || r() < 0.06;
-      const bonusIdx = ["Common", "Uncommon"].includes(rarity) ? 0 : RARITIES.indexOf(rarity);
+      const sub = cat.subs[i % cat.subs.length]!;
+      const word = cat.words[i % cat.words.length]!;
+      const tierScale = Math.pow(1.42, i);
+      const jitter = 0.9 + r() * 0.2;
+      const baseValue = Math.round(cat.base * tierScale * jitter);
       out.push({
         id: `${cat.id}-${String(i + 1).padStart(3, "0")}`,
-        name: `${word} ${sub}${series > 1 ? ` S${series}` : ""}`,
+        name: `${word} ${sub}`,
         category: cat.id,
         sub,
-        rarity,
-        price: Math.round(value * 1.05),
-        baseValue: value,
-        limited: limited ? Math.max(1, Math.round(500 / RARITY_MULT[rarity]) + 3) : null,
-        releaseAt: limited ? RELEASE_EPOCH + limitedIdx++ * 12 * 3600_000 : null,
-        restrictedResale: rarity === "Mythical",
-        bonus:
-          cat.bonus && bonusIdx > 0
-            ? { key: cat.bonus, value: Number((cat.bonusScale * bonusIdx).toFixed(4)) }
-            : null,
+        price: baseValue,
+        baseValue,
+        bonusKey: cat.bonus,
+        limited: null,
+        releaseAt: null,
       });
     }
   }
   return out;
 }
-export const COLLECTIBLES = build(); // 300 items
+
+export const COLLECTIBLES = build(); // 120 items total
 export const COLLECTIBLE_BY_ID = Object.fromEntries(COLLECTIBLES.map((c) => [c.id, c]));
 
-export function valueMultiplier(item: CollectibleDef, t: number) {
-  const cat = CATEGORY_BY_ID[item.category];
-  const k = Math.floor(t / (cat.updateHours * 3600_000));
-  const rarityBoost = RARITIES.indexOf(item.rarity) * 0.01;
-  const w =
-    wave(hashStr(item.id), k / 3) * cat.volatility +
-    wave(hashStr(cat.id), k / 10) * cat.volatility * 0.5;
-  return Math.max(0.2, 1 + w + rarityBoost + (item.limited ? 0.05 : 0));
-}
-export const currentValue = (item: CollectibleDef, t: number) =>
-  Math.round(item.baseValue * valueMultiplier(item, t));
-export function demandLabel(item: CollectibleDef, t: number) {
-  const d = wave(hashStr(item.id) ^ 11, t / 86400_000);
-  return d > 0.3 ? "High" : d < -0.3 ? "Low" : "Moderate";
-}
-export function valueSeries(item: CollectibleDef, from: number, to: number, points = 60) {
-  const cat = CATEGORY_BY_ID[item.category];
-  const step = Math.max(cat.updateHours * 3600_000, (to - from) / points);
-  const out: { t: number; v: number }[] = [];
-  for (let t = from; t <= to; t += step) out.push({ t, v: currentValue(item, t) });
-  return out;
+/** Maps legacy 300-item / luxprop collectible IDs cleanly to the active 120-item catalog. */
+export function resolveCollectibleId(itemId: string): string {
+  if (COLLECTIBLE_BY_ID[itemId]) return itemId;
+  const m = /^([a-z]+)-(\d+)$/i.exec(itemId || "");
+  if (m) {
+    const rawCat = m[1]!.toLowerCase();
+    const mappedCat = rawCat === "luxprop" ? "yachts" : rawCat;
+    const cat = CATEGORY_BY_ID[mappedCat] ?? CATEGORIES[0]!;
+    const idx = Math.max(1, Math.min(cat.count, Number(m[2]) || 1));
+    const candidate = `${cat.id}-${String(idx).padStart(3, "0")}`;
+    if (COLLECTIBLE_BY_ID[candidate]) return candidate;
+  }
+  return COLLECTIBLES[0]!.id;
 }
 
-// Collections: themed sets of specific items + category starter sets
+/** Rolls a single 1-to-1 randomized rarity according to RARITY_DIST. */
+export function rollRarity(rng: () => number = Math.random): Rarity {
+  const roll = rng();
+  let acc = 0;
+  for (const r of RARITIES) {
+    acc += RARITY_DIST[r];
+    if (roll < acc) return r;
+  }
+  return "Common";
+}
+
+/** Fixed rarity-adjusted valuation (ungraded items retain their base purchase value). */
+export function collectibleValue(
+  item: CollectibleDef | undefined | null,
+  rarity?: AssetGrade,
+  fallbackPrice = 0,
+): number {
+  if (!item) return fallbackPrice;
+  if (!rarity || rarity === "Ungraded") return item.baseValue;
+  const bonus = RARITY_VALUE_BONUS[rarity] ?? 0;
+  return Math.round(item.baseValue * (1 + bonus));
+}
+
+/** Fixed portfolio bonus conferred once an item is graded. */
+export function collectibleStatBonus(
+  item: CollectibleDef | undefined | null,
+  rarity?: AssetGrade,
+): { key: keyof GlobalMods; value: number } | null {
+  if (!item || !item.bonusKey || !rarity || rarity === "Ungraded") return null;
+  const pct = RARITY_STAT_BONUS[rarity] ?? 0;
+  if (pct <= 0) return null;
+  if (item.bonusKey === "offlineHours") {
+    return { key: "offlineHours", value: Number((pct * 20).toFixed(2)) };
+  }
+  return { key: item.bonusKey, value: pct };
+}
+
+/** Backwards-compatible alias taking an optional rarity instead of time-based fluctuations. */
+export function currentValue(
+  item: CollectibleDef | undefined | null,
+  rarityOrTime?: AssetGrade | number,
+): number {
+  if (!item) return 0;
+  if (typeof rarityOrTime === "string") {
+    return collectibleValue(item, rarityOrTime);
+  }
+  return item.baseValue;
+}
+
 export type CollectionDef = {
   id: string;
   name: string;
@@ -367,41 +393,41 @@ export type CollectionDef = {
   reward: { cash: number; xp: number };
   bonus: { key: keyof GlobalMods; value: number };
 };
+
 function buildCollections(): CollectionDef[] {
   const out: CollectionDef[] = [];
   for (const cat of CATEGORIES) {
-    const items = COLLECTIBLES.filter((c) => c.category === cat.id);
-    const commons = items.filter((c) => c.rarity === "Common").slice(0, 4);
-    if (commons.length >= 3)
+    const items = [...COLLECTIBLES.filter((c) => c.category === cat.id)].sort(
+      (a, b) => a.price - b.price,
+    );
+    const starter = items.slice(0, 4);
+    if (starter.length >= 3) {
       out.push({
         id: `col-${cat.id}-starter`,
         name: `${cat.name} Starter Set`,
-        items: commons.map((c) => c.id),
-        reward: { cash: Math.round(cat.base * 0.5), xp: 200 },
-        bonus: { key: cat.bonus ?? "xpPct", value: 0.01 },
+        items: starter.map((c) => c.id),
+        reward: { cash: Math.round(cat.base * 1.5), xp: 200 },
+        bonus: {
+          key: cat.bonus ?? "xpPct",
+          value: cat.bonus === "offlineHours" ? 0.5 : 0.01,
+        },
       });
-    const subs = cat.subs;
-    for (const sub of subs) {
-      const set = items.filter((c) => c.sub === sub).slice(0, 5);
-      if (set.length >= 4)
-        out.push({
-          id: `col-${cat.id}-${sub.toLowerCase().replace(/\W+/g, "-")}`,
-          name: `${sub} Collection`,
-          items: set.map((c) => c.id),
-          reward: { cash: Math.round(cat.base * 3), xp: 600 },
-          bonus: { key: cat.bonus ?? "xpPct", value: 0.015 },
-        });
+    }
+    const flagship = items.slice(-4);
+    if (flagship.length >= 4 && items.length >= 8) {
+      out.push({
+        id: `col-${cat.id}-flagship`,
+        name: `${cat.name} Connoisseur Set`,
+        items: flagship.map((c) => c.id),
+        reward: { cash: Math.round(cat.base * 12), xp: 800 },
+        bonus: {
+          key: cat.bonus ?? "xpPct",
+          value: cat.bonus === "offlineHours" ? 1 : 0.02,
+        },
+      });
     }
   }
-  // cross-category themed
-  const legend = COLLECTIBLES.filter((c) => c.rarity === "Legendary").slice(0, 6);
-  out.push({
-    id: "col-legends",
-    name: "Hall of Legends",
-    items: legend.map((c) => c.id),
-    reward: { cash: 5_000_000, xp: 5_000 },
-    bonus: { key: "businessPct", value: 0.03 },
-  });
   return out;
 }
+
 export const COLLECTIONS = buildCollections();

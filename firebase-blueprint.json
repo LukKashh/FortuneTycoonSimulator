@@ -321,6 +321,18 @@
           ],
           "maxLength": 128
         },
+        "title": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "avatar": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 100
+        },
         "updatedAt": {
           "type": "number"
         }

@@ -26,6 +26,7 @@ import { applyCorp, corpMods, corpTick, reconcileMembership, type CorpAction } f
 import { RANK_PERMS, type Rank } from "@/game/config";
 import { GameError, type CorpState, type PlayerState } from "@/game/types";
 import { corporationLeaderboardEntry, type CorporationLeaderboardEntry } from "@/game/leaderboard";
+import { DEFAULT_AVATAR, DEFAULT_TITLE } from "@/game/profile";
 
 type AnyAction = Action | CorpAction;
 const CORP_TYPES = new Set([
@@ -277,8 +278,8 @@ async function run(
           level: state.level || 1,
           netWorth: calculatedNw,
           liquid: state.cash + state.reservedCash,
-          title: state.profile?.title || "Aspiring Tycoon",
-          avatar: state.profile?.avatar || "briefcase",
+          title: state.profile?.title || DEFAULT_TITLE,
+          avatar: state.profile?.avatar || DEFAULT_AVATAR,
           corpTag,
           version: version + 1,
           state: state as unknown as Record<string, unknown>,
@@ -297,6 +298,9 @@ async function run(
           netWorth: playerRecord.netWorth,
           corpTag,
           corpId: state.corp.id || null,
+          title: playerRecord.title,
+          avatar: playerRecord.avatar,
+          bio: String(state.profile?.bio || "").slice(0, 100),
           updatedAt: now,
         });
 
@@ -447,13 +451,49 @@ export async function getCollectibleStock() {
   }
 }
 
+export type PublicPlayerProfile = {
+  userId: string;
+  username: string;
+  level: number;
+  netWorth: number;
+  corpTag: string | null;
+  corpId: string | null;
+  title: string;
+  avatar: string;
+  bio: string;
+};
+
 export type LeaderboardEntry = {
   userId: string;
   username: string;
   level: number;
   netWorth: number;
   corpTag: string | null;
+  title?: string;
+  avatar?: string;
+  bio?: string;
 };
+
+export async function getPublicPlayer(userId: string): Promise<PublicPlayerProfile | null> {
+  try {
+    const snap = await getDoc(doc(db, "public_players", userId));
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return {
+      userId: snap.id,
+      username: String(data.username || "Tycoon"),
+      level: Number(data.level || 1),
+      netWorth: Math.max(0, Math.round(Number(data.netWorth) || 0)),
+      corpTag: (data.corpTag as string | null) ?? null,
+      corpId: (data.corpId as string | null) ?? null,
+      title: String(data.title || DEFAULT_TITLE),
+      avatar: String(data.avatar || DEFAULT_AVATAR),
+      bio: String(data.bio || "").slice(0, 100),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function getLeaderboard(
   sort: "networth" | "experience" = "networth",
@@ -471,6 +511,9 @@ export async function getLeaderboard(
         level: Number(data.level || 1),
         netWorth: Math.max(0, Math.round(Number(data.netWorth) || 0)),
         corpTag: (data.corpTag as string | null) ?? null,
+        title: String(data.title || DEFAULT_TITLE),
+        avatar: String(data.avatar || DEFAULT_AVATAR),
+        bio: String(data.bio || "").slice(0, 100),
       };
     });
   } catch {
@@ -481,6 +524,9 @@ export async function getLeaderboard(
         level: 24,
         netWorth: 15400000,
         corpTag: "APEX",
+        title: DEFAULT_TITLE,
+        avatar: DEFAULT_AVATAR,
+        bio: "",
       },
       {
         userId: "player_2",
@@ -488,8 +534,20 @@ export async function getLeaderboard(
         level: 19,
         netWorth: 8200000,
         corpTag: "VNTR",
+        title: DEFAULT_TITLE,
+        avatar: DEFAULT_AVATAR,
+        bio: "",
       },
-      { userId: "player_3", username: "TycoonElite", level: 15, netWorth: 4100000, corpTag: null },
+      {
+        userId: "player_3",
+        username: "TycoonElite",
+        level: 15,
+        netWorth: 4100000,
+        corpTag: null,
+        title: DEFAULT_TITLE,
+        avatar: DEFAULT_AVATAR,
+        bio: "",
+      },
     ];
   }
 }
@@ -683,8 +741,8 @@ export async function createAccountWithUsername(chosenUsername: string) {
         level: state.level || 1,
         netWorth: calculatedNw,
         liquid: state.cash + state.reservedCash,
-        title: state.profile?.title || "Aspiring Tycoon",
-        avatar: state.profile?.avatar || "briefcase",
+        title: state.profile?.title || DEFAULT_TITLE,
+        avatar: state.profile?.avatar || DEFAULT_AVATAR,
         corpTag: null,
         version,
         state: state as unknown as Record<string, unknown>,
@@ -707,6 +765,9 @@ export async function createAccountWithUsername(chosenUsername: string) {
         netWorth: playerRecord.netWorth,
         corpTag: null,
         corpId: null,
+        title: playerRecord.title,
+        avatar: playerRecord.avatar,
+        bio: String(state.profile?.bio || "").slice(0, 100),
         updatedAt: now,
       });
     });

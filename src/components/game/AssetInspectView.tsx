@@ -7,13 +7,11 @@ import { corpMods } from "@/game/corp";
 import {
   cryptoLiquidity,
   cryptoPriceAtTick,
-  cryptoSupply,
   cryptoTick,
   cryptoTickTime,
   series,
   stockLiquidity,
   stockPriceAtTick,
-  stockProfitable,
   stockTick,
   stockTickTime,
 } from "@/game/market";
@@ -29,6 +27,7 @@ import {
   Segmented,
   useRange,
 } from "@/components/game/ui";
+import { MarketLogo } from "@/components/game/CollectibleIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { OrderKind } from "@/game/types";
@@ -138,48 +137,62 @@ export function AssetInspectView({
   return (
     <div className="space-y-3 pb-2">
       {onClose ? (
-        <div className="flex items-center justify-between pb-1.5 border-b border-border/60 gap-2">
-          <div>
-            <h2 className="text-lg font-bold">{sym}</h2>
-            <p className="text-xs text-muted-foreground">
-              {sd?.name ?? cd?.name} · {sd?.sector ?? `${cd?.profile} volatility`}
-            </p>
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <MarketLogo
+              market={isStock ? "stock" : "crypto"}
+              symbol={sym}
+              sector={sd?.sector}
+              className="h-9 w-9"
+            />
+            <div className="min-w-0">
+              <h2 className="text-base font-bold leading-tight">{sym}</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                {sd?.name ?? cd?.name} · {sd?.sector ?? `${cd?.profile} volatility`}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="num text-xl font-bold">{price(p)}</div>
-          </div>
+          <div className="num shrink-0 text-lg font-bold">{price(p)}</div>
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <Link
               to="/markets"
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
               Asset Management
             </Link>
           </div>
-          <div className="mb-2 flex items-baseline justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{sym}</h1>
-              <p className="text-sm text-muted-foreground">
-                {sd?.name ?? cd?.name} · {sd?.sector ?? `${cd?.profile} volatility`}
-              </p>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <MarketLogo
+                market={isStock ? "stock" : "crypto"}
+                symbol={sym}
+                sector={sd?.sector}
+                className="h-11 w-11"
+              />
+              <div className="min-w-0">
+                <h1 className="text-xl font-bold">{sym}</h1>
+                <p className="truncate text-sm text-muted-foreground">
+                  {sd?.name ?? cd?.name} · {sd?.sector ?? `${cd?.profile} volatility`}
+                </p>
+              </div>
             </div>
-            <div className="num text-3xl font-bold">{price(p)}</div>
+            <div className="num shrink-0 text-2xl font-bold">{price(p)}</div>
           </div>
         </>
       )}
 
-      <Card className="mb-3">
-        <MiniChart data={chart} height={160} format={price} />
+      <Card>
+        <MiniChart data={chart} height={150} format={price} />
         <div className="mt-2">
           <RangeTabs value={range} onChange={setRange} />
         </div>
       </Card>
 
-      <Card className="mb-3">
+      <Card>
         <Segmented
           value={side}
           onChange={(v) => {
@@ -198,7 +211,7 @@ export function AssetInspectView({
               size="sm"
               key={k.id}
               onClick={() => setKind(k.id)}
-              className={`rounded-full px-3 py-1 text-xs ${kind === k.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+              className={`rounded-md px-3 py-1 text-xs whitespace-nowrap ${kind === k.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
             >
               {k.label}
             </Button>
@@ -223,6 +236,7 @@ export function AssetInspectView({
           )}
         </div>
         <div className="mt-2 text-xs">
+          <Row label="Available Cash" value={money(s.cash)} />
           <Row label="Estimated value" value={money(gross)} />
           <Row label={`Fee (${pct(fee, 3)})`} value={money(feeAmt)} />
           <Row
@@ -253,7 +267,7 @@ export function AssetInspectView({
         <Confirm
           trigger={
             <Button
-              className="mt-3 h-10 w-full bg-gradient-primary text-xs"
+              className="mt-3 h-10 w-full bg-gradient-primary text-xs font-semibold"
               disabled={locked || pending || q <= 0}
             >
               {locked
@@ -277,68 +291,6 @@ export function AssetInspectView({
           }
           onConfirm={submit}
         />
-      </Card>
-
-      <Card>
-        {sd &&
-          (() => {
-            const shares = sd.shares;
-            const mc = shares * p;
-            const profit = sd.revenue * sd.margin;
-            return (
-              <>
-                <p className="mb-2 text-xs text-muted-foreground">{sd.desc}</p>
-                <Row label="Market cap" value={money(mc)} />
-                <Row label="Outstanding shares" value={num(shares)} />
-                <Row
-                  label="Authorized / Treasury"
-                  value={`${num(sd.authorized)} / ${num(sd.treasury)}`}
-                />
-                <Row label="Exchange available" value={num(shares - sd.treasury)} />
-                <Row label="Revenue (annual)" value={money(sd.revenue)} />
-                <Row
-                  label="Net margin"
-                  value={pct(sd.margin)}
-                  tone={sd.margin >= 0 ? "gain" : "loss"}
-                />
-                <Row label="EPS" value={price(profit / shares)} />
-                <Row
-                  label="Assets / Liabilities"
-                  value={`${money(sd.assets)} / ${money(sd.liabilities)}`}
-                />
-                <Row
-                  label="Dividend yield"
-                  value={sd.dividendYield ? pct(sd.dividendYield, 2) : "None"}
-                />
-                <Row
-                  label="Dividends today"
-                  value={
-                    sd.dividendYield
-                      ? stockProfitable(sd, Math.floor(now / 86400_000))
-                        ? "Paying"
-                        : "Suspended (loss)"
-                      : "—"
-                  }
-                />
-              </>
-            );
-          })()}
-        {cd &&
-          (() => {
-            const sup = cryptoSupply(cd, now);
-            return (
-              <>
-                <p className="mb-2 text-xs text-muted-foreground">{cd.desc}</p>
-                <Row label="Supply model" value={cd.supplyModel} />
-                <Row label="Circulating" value={num(sup.circulating)} />
-                <Row label="Max supply" value={sup.max ? num(sup.max) : "Unlimited"} />
-                <Row label="Burned" value={num(sup.burned)} />
-                <Row label="Inflation" value={pct(cd.inflation)} />
-                <Row label="Market cap" value={money(sup.circulating * p)} />
-                <Row label="FDV" value={sup.max ? money(sup.max * p) : "n/a"} />
-              </>
-            );
-          })()}
       </Card>
     </div>
   );

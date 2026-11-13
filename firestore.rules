@@ -130,7 +130,11 @@ service cloud.firestore {
     match /public_players/{userId} {
       allow get, list: if isSignedIn();
       allow create, update: if (isOwner(userId) || isAdmin())
-        && incoming().userId == userId;
+        && incoming().userId == userId
+        && incoming().username is string && incoming().username.size() <= 32
+        && (!('title' in incoming()) || (incoming().title is string && incoming().title.size() <= 40))
+        && (!('avatar' in incoming()) || (incoming().avatar is string && incoming().avatar.size() <= 32))
+        && (!('bio' in incoming()) || (incoming().bio is string && incoming().bio.size() <= 100));
       allow delete: if isAdmin() || isOwner(userId);
     }
 

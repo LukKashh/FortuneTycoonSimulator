@@ -5,6 +5,7 @@ import { getLeaderboard, getCorporationLeaderboard } from "@/lib/game.functions"
 import { money } from "@/lib/format";
 import { Card, Loading } from "@/components/game/ui";
 import { Button } from "@/components/ui/button";
+import { PublicProfileDialog, type PublicProfileInput } from "@/components/game/PublicProfileCard";
 
 import { cumulativeXpForLevel } from "@/game/engine";
 
@@ -29,6 +30,7 @@ function LeaderboardPage() {
   const [category, setCategory] = useState<Category>("players");
   const [playerCriterion, setPlayerCriterion] = useState<PlayerCriterion>("networth");
   const [corpCriterion, setCorpCriterion] = useState<CorpCriterion>("activity");
+  const [inspectPlayer, setInspectPlayer] = useState<PublicProfileInput | null>(null);
 
   const { data: playersLeaderboard, isLoading: isLoadingPlayers } = useQuery({
     queryKey: ["leaderboard-players", playerCriterion],
@@ -140,17 +142,31 @@ function LeaderboardPage() {
                       : `${cumulativeXpForLevel(entry.level).toLocaleString()} XP`;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={entry.userId}
-                      className="grid grid-cols-12 items-center gap-2 px-3 py-1 transition-colors hover:bg-muted/30"
+                      onClick={() =>
+                        setInspectPlayer({
+                          userId: entry.userId,
+                          username: entry.username,
+                          level: entry.level,
+                          corpTag: entry.corpTag,
+                          title: entry.title,
+                          avatar: entry.avatar,
+                          bio: entry.bio,
+                        })
+                      }
+                      className="grid w-full grid-cols-12 items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-muted/40"
                     >
                       <div className="col-span-2 text-center font-mono font-bold text-foreground">
                         #{rank}
                       </div>
-                      <div className="col-span-6 font-semibold text-foreground truncate flex items-center gap-1.5">
-                        <span className="truncate">{entry.username}</span>
+                      <div className="col-span-6 flex items-center gap-1.5 truncate font-semibold text-foreground">
+                        <span className="truncate underline decoration-border/70 underline-offset-2">
+                          {entry.username}
+                        </span>
                         {entry.corpTag && (
-                          <span className="rounded bg-primary/20 px-1 py-0.2 text-[9px] text-primary shrink-0">
+                          <span className="shrink-0 rounded bg-primary/20 px-1 py-0.2 text-[9px] text-primary">
                             [{entry.corpTag}]
                           </span>
                         )}
@@ -158,7 +174,7 @@ function LeaderboardPage() {
                       <div className="col-span-4 text-right font-mono font-medium text-gain">
                         {val}
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
@@ -257,6 +273,11 @@ function LeaderboardPage() {
           </Card>
         </div>
       )}
+      <PublicProfileDialog
+        player={inspectPlayer}
+        open={!!inspectPlayer}
+        onOpenChange={(open) => !open && setInspectPlayer(null)}
+      />
     </div>
   );
 }

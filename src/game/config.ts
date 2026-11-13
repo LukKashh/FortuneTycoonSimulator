@@ -3075,23 +3075,103 @@ export const CORP_BUSINESSES = [
 ];
 
 // ---------------------------------------------------------------- Casino
+export const CASINO_DENOMINATIONS = [100, 1000, 5000] as const;
+export type CasinoDenomination = (typeof CASINO_DENOMINATIONS)[number];
+
+export type PlinkoRisk = "low" | "medium" | "high";
+export type PlinkoRows = 8 | 12 | 16;
+export type KenoRisk = "low" | "classic" | "high";
+export type ChickenDifficulty = "easy" | "medium" | "hard" | "daredevil";
+
 export const CASINO = {
-  chipValue: 100, // $ per chip; exchange both ways with no fee
-  minBet: 1,
-  maxBet: 1_000_000,
-  houseEdge: 0.03, // mines & hi-lo multipliers
+  chipValue: 100, // base unit ($100 per 1 base chip); wallet also supports $100, $1,000, $5,000 chips
+  denominations: CASINO_DENOMINATIONS,
+  minBet: 0.1, // $10 minimum stake
+  maxBet: 1_000_000, // $100M max stake in base units
+  houseEdge: 0.03, // default 3.0% house edge (Mines, Hi-Lo, Keno, Crash, Chicken)
+  diceHouseEdge: 0.01, // 1.0% house edge (99.0% RTP)
+  plinkoHouseEdge: 0.015, // ~1.0–1.5% house edge (98.5–99.0% RTP)
+  kenoHouseEdge: 0.03, // 3.0% house edge (97.0% RTP)
+  crashHouseEdge: 0.03, // 3.0% house edge (97.0% RTP)
+  chickenHouseEdge: 0.03, // 3.0% house edge (97.0% RTP)
   hiloMaxMult: 10_000,
-  /** Keno payout multipliers indexed by [spots picked][hits]. */
+  hiloMaxSkips: 5,
+  crashMaxMult: 1000,
+  chickenMaxSteps: 15,
+  chickenModes: {
+    easy: { label: "Easy", survivalProb: 0.9, desc: "10% traffic hazard per lane" },
+    medium: { label: "Medium", survivalProb: 0.8, desc: "20% traffic hazard per lane" },
+    hard: { label: "Hard", survivalProb: 0.65, desc: "35% traffic hazard per lane" },
+    daredevil: { label: "Daredevil", survivalProb: 0.45, desc: "55% traffic hazard per lane" },
+  } as Record<ChickenDifficulty, { label: string; survivalProb: number; desc: string }>,
+  /** Calibrated binomial-weighted Plinko multiplier tables (~98.5–99.0% RTP). */
+  plinkoPay: {
+    low: {
+      8: [5.5, 2.1, 1.1, 1, 0.5, 1, 1.1, 2.1, 5.5],
+      12: [9.9, 3, 1.6, 1.4, 1.1, 1, 0.5, 1, 1.1, 1.4, 1.6, 3, 9.9],
+      16: [15.8, 8.9, 2, 1.4, 1.4, 1.2, 1.1, 1, 0.5, 1, 1.1, 1.2, 1.4, 1.4, 2, 8.9, 15.8],
+    },
+    medium: {
+      8: [12.9, 3, 1.3, 0.7, 0.4, 0.7, 1.3, 3, 12.9],
+      12: [32.7, 10.9, 4, 2, 1.1, 0.6, 0.3, 0.6, 1.1, 2, 4, 10.9, 32.7],
+      16: [108.9, 40.6, 9.9, 5, 3, 1.5, 1, 0.5, 0.3, 0.5, 1, 1.5, 3, 5, 9.9, 40.6, 108.9],
+    },
+    high: {
+      8: [28.7, 4, 1.5, 0.3, 0.2, 0.3, 1.5, 4, 28.7],
+      12: [168.1, 23.7, 8, 2, 0.7, 0.2, 0.2, 0.2, 0.7, 2, 8, 23.7, 168.1],
+      16: [990.1, 128.7, 25.7, 8.9, 4, 2, 0.2, 0.2, 0.2, 0.2, 0.2, 2, 4, 8.9, 25.7, 128.7, 990.1],
+    },
+  } as Record<PlinkoRisk, Record<PlinkoRows, number[]>>,
+  /** Calibrated 40-ball Keno payout multipliers (10 balls drawn, 97.0% RTP across all risk modes). */
+  keno40Pay: {
+    low: {
+      1: [0.68, 1.85],
+      2: [0, 1.95, 3.8],
+      3: [0, 1.1, 1.28, 25.53],
+      4: [0, 0, 2.45, 8.65, 45.55],
+      5: [0, 0, 1.49, 4.51, 14.87, 148.68],
+      6: [0, 0, 1.08, 2.47, 7.82, 57.62, 180.06],
+      7: [0, 0, 0, 2.22, 7.87, 29.07, 131.11, 444.63],
+      8: [0, 0, 0, 1.84, 3.74, 15.17, 56.34, 249.19, 595.89],
+      9: [0, 0, 0, 1.59, 2.69, 6.76, 22.19, 105.68, 359.31, 760.89],
+      10: [0, 0, 0, 1.4, 2, 4.2, 10.49, 35.96, 139.86, 419.58, 799.19],
+    },
+    classic: {
+      1: [0, 3.88],
+      2: [0, 1.75, 5.11],
+      3: [0, 0, 2.78, 48.56],
+      4: [0, 0, 1.7, 9.82, 95.15],
+      5: [0, 0, 1.4, 3.89, 13.46, 378.87],
+      6: [0, 0, 0, 2.96, 8.83, 175.57, 702.28],
+      7: [0, 0, 0, 1.97, 6.85, 29.23, 393.08, 806.32],
+      8: [0, 0, 0, 1.72, 3.97, 14.11, 67.92, 438.88, 940.47],
+      9: [0, 0, 0, 1.58, 2.67, 7.07, 21.21, 103.35, 543.97, 1087.94],
+      10: [0, 0, 0, 1.39, 2, 4.21, 10.79, 34.93, 154.12, 513.72, 1027.44],
+    },
+    high: {
+      1: [0, 3.88],
+      2: [0, 0, 16.81],
+      3: [0, 0, 0, 79.86],
+      4: [0, 0, 0, 10.19, 247.46],
+      5: [0, 0, 0, 4.37, 47.65, 436.79],
+      6: [0, 0, 0, 0, 11, 340.09, 700.18],
+      7: [0, 0, 0, 0, 7.22, 85.84, 385.28, 780.32],
+      8: [0, 0, 0, 0, 5.88, 24, 156.01, 528.02, 1080.04],
+      9: [0, 0, 0, 0, 4.4, 11.86, 47.43, 197.64, 564.68, 1129.36],
+      10: [0, 0, 0, 0, 3.5, 6.69, 17.51, 80.34, 257.5, 617.99, 1029.99],
+    },
+  } as Record<KenoRisk, Record<number, number[]>>,
+  /** Backwards-compatible alias to classic 40-ball Keno payouts. */
   kenoPay: {
-    1: [0, 3.8],
-    2: [0, 1.7, 5.2],
-    3: [0, 0, 2.5, 40],
-    4: [0, 0, 1.5, 9, 70],
-    5: [0, 0, 1.2, 3, 12, 300],
-    6: [0, 0, 0, 2.5, 8, 100, 500],
-    7: [0, 0, 0, 1.5, 5, 25, 250, 700],
-    8: [0, 0, 0, 1.5, 3.5, 10, 50, 300, 800],
-    9: [0, 0, 0, 1.5, 2.5, 5, 12, 80, 400, 900],
-    10: [0, 0, 0, 1.2, 2, 3.5, 7, 24, 90, 400, 1000],
+    1: [0, 3.88],
+    2: [0, 1.75, 5.11],
+    3: [0, 0, 2.78, 48.56],
+    4: [0, 0, 1.7, 9.82, 95.15],
+    5: [0, 0, 1.4, 3.89, 13.46, 378.87],
+    6: [0, 0, 0, 2.96, 8.83, 175.57, 702.28],
+    7: [0, 0, 0, 1.97, 6.85, 29.23, 393.08, 806.32],
+    8: [0, 0, 0, 1.72, 3.97, 14.11, 67.92, 438.88, 940.47],
+    9: [0, 0, 0, 1.58, 2.67, 7.07, 21.21, 103.35, 543.97, 1087.94],
+    10: [0, 0, 0, 1.39, 2, 4.21, 10.79, 34.93, 154.12, 513.72, 1027.44],
   } as Record<number, number[]>,
 };

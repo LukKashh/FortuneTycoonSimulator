@@ -37,6 +37,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PublicProfileDialog, type PublicProfileInput } from "@/components/game/PublicProfileCard";
+import { DEFAULT_AVATAR, DEFAULT_TITLE } from "@/game/profile";
 
 export const Route = createFileRoute("/_authenticated/corporation")({
   head: () => ({
@@ -236,6 +238,7 @@ function InCorp({ data, corp }: { data: GameData; corp: CorpView }) {
   const [invite, setInvite] = useState("");
   const [desc, setDesc] = useState(corp.description);
   const [dissolveName, setDissolveName] = useState("");
+  const [inspectMember, setInspectMember] = useState<PublicProfileInput | null>(null);
   const myId = corp.myId;
   const isFounder = corp.founderId === myId;
   const me = corp.members[myId];
@@ -475,10 +478,24 @@ function InCorp({ data, corp }: { data: GameData; corp: CorpView }) {
               <Card key={uid}>
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <div className="font-semibold">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInspectMember({
+                          userId: uid,
+                          username: m.name,
+                          level: uid === myId ? s.level : 1,
+                          corpTag: corp.tag,
+                          title: uid === myId ? s.profile.title : DEFAULT_TITLE,
+                          avatar: uid === myId ? s.profile.avatar : DEFAULT_AVATAR,
+                          bio: uid === myId ? s.profile.bio : "",
+                        })
+                      }
+                      className="text-left font-semibold underline decoration-border/70 underline-offset-2 hover:text-primary transition-colors"
+                    >
                       {m.name}
                       {uid === myId && " (you)"}
-                    </div>
+                    </button>
                     <div className="text-xs text-muted-foreground">
                       Joined {date(m.joinedAt)} · {money(m.total)} contributed · {m.shifts} shifts
                     </div>
@@ -776,6 +793,11 @@ function InCorp({ data, corp }: { data: GameData; corp: CorpView }) {
           </div>
         )}
       </div>
+      <PublicProfileDialog
+        player={inspectMember}
+        open={!!inspectMember}
+        onOpenChange={(open) => !open && setInspectMember(null)}
+      />
     </div>
   );
 }

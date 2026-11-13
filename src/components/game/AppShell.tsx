@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { MenuContext } from "@/context/menu";
 import {
-  Award,
   BarChart3,
   Dices,
   Briefcase,
@@ -14,7 +13,6 @@ import {
   Minimize,
   LineChart,
   LogOut,
-  User,
   Trophy,
   Landmark,
   Receipt,
@@ -40,8 +38,8 @@ import { OfflineReportDialog } from "./OfflineReport";
 import { checkDeveloperAccess, DeveloperToolsDialog } from "./DeveloperTools";
 
 const NAV = [
-  { to: "/markets", label: "Asset Management", icon: LineChart, also: ["/collectibles"] },
-  { to: "/empire", label: "Empire Overview", icon: Building2, also: ["/realestate"] },
+  { to: "/markets", label: "Markets", icon: LineChart, also: ["/collectibles"] },
+  { to: "/empire", label: "Empire", icon: Building2, also: ["/realestate"] },
   { to: "/home", label: "Tap", icon: Coins, center: true },
   { to: "/research", label: "R&D", icon: FlaskConical },
   { to: "/corporation", label: "Corp", icon: Briefcase },
@@ -50,9 +48,7 @@ const NAV = [
 const MORE = [
   { to: "/casino", label: "Casino", icon: Dices },
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { to: "/achievements", label: "Achievements", icon: Award },
   { to: "/stats", label: "Statistics", icon: BarChart3 },
-  { to: "/profile", label: "Profile & Settings", icon: User },
 ] as const;
 
 export function AppShell() {
@@ -130,7 +126,12 @@ export function AppShell() {
   return (
     <MenuContext.Provider value={{ openMenu: () => setMenu(true) }}>
       <div className="game-shell flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        <main className="game-content mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-x-hidden overflow-y-auto px-3 pb-14 pt-2">
+        <main
+          className={cn(
+            "game-content mx-auto flex min-h-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto px-3 pb-14 pt-2",
+            path.startsWith("/casino") ? "max-w-5xl" : "max-w-2xl",
+          )}
+        >
           <Outlet />
         </main>
 
@@ -156,7 +157,7 @@ export function AppShell() {
                   </span>
                   <span
                     className={cn(
-                      "mt-0.5 text-[10px]",
+                      "mt-0.5 text-[10px] whitespace-nowrap",
                       active ? "text-primary" : "text-muted-foreground",
                     )}
                   >
@@ -168,10 +169,10 @@ export function AppShell() {
                   key={n.to}
                   to={n.to}
                   data-active={active}
-                  className="game-nav-link flex flex-col items-center gap-0.5 py-1.5 text-[10px] text-muted-foreground"
+                  className="game-nav-link flex flex-col items-center gap-0.5 py-1.5 text-[10px] whitespace-nowrap text-muted-foreground"
                 >
                   <n.icon className="game-icon h-4 w-4" />
-                  {n.label}
+                  <span>{n.label}</span>
                 </Link>
               );
             })}
@@ -223,10 +224,10 @@ export function AppShell() {
                         </span>
                         <span className="min-w-0">
                           <span className="block truncate text-xs font-bold text-foreground">
-                            Bank &amp; Loans
+                            My Banking
                           </span>
                           <span className="block truncate text-[10px] text-muted-foreground">
-                            Accounts
+                            Unified Bank
                           </span>
                         </span>
                       </button>
@@ -315,9 +316,9 @@ export function AppShell() {
         <Dialog open={bankingOpen} onOpenChange={setBankingOpen}>
           <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-2 overflow-hidden p-3 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)] sm:p-4">
             <DialogHeader className="shrink-0 pr-8 text-left">
-              <DialogTitle className="text-base font-bold">Bank &amp; Loans</DialogTitle>
+              <DialogTitle className="text-base font-bold">My Banking</DialogTitle>
               <DialogDescription className="sr-only">
-                Manage banking accounts and loans.
+                Manage your unified bank account, deposits, loans, and income routing.
               </DialogDescription>
             </DialogHeader>
             <div className="banking-view min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pr-1">

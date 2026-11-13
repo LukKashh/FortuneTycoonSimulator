@@ -1,75 +1,82 @@
-import {
-  Car,
-  Gem,
-  Image as ImageIcon,
-  Landmark,
-  Mail,
-  Palette,
-  Plane,
-  Sailboat,
-  Sparkles,
-  Watch,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { art } from "./art";
-import type { Rarity } from "@/game/collectibles";
+import { collectibleCategoryTexture, collectibleItemTexture, cryptoLogo, stockLogo } from "./art";
+import type { AssetGrade } from "@/game/collectibles";
 
-const ICONS: Record<string, typeof Car> = {
-  vehicles: Car,
-  aircraft: Plane,
-  yachts: Sailboat,
-  watches: Watch,
-  paintings: Palette,
-  stamps: Mail,
-  antiques: Landmark,
-  jewelry: Gem,
-  nfts: Sparkles,
-  luxprop: ImageIcon,
-};
-export const RARITY_TONE: Record<Rarity, string> = {
+export const RARITY_TONE: Record<AssetGrade, string> = {
+  Ungraded: "text-muted-foreground border-border/80",
   Common: "text-muted-foreground border-border",
   Uncommon: "text-gain border-gain/40",
-  Rare: "text-chart-4 border-chart-4/40",
+  Rare: "text-sky-400 border-sky-400/40",
+  "Very Rare": "text-indigo-400 border-indigo-400/40",
   Epic: "text-primary border-primary/50",
   Legendary: "text-gold border-gold/50",
   Mythical: "text-loss border-loss/50",
+  Divine: "text-amber-300 border-amber-300/70",
 };
 
-export function CollectibleIcon({
-  category,
-  rarity,
+/**
+ * Circular display frame with zoomed texture fitting for Stock Exchange companies
+ * and CryptoTrade Exchange tokens.
+ */
+export function MarketLogo({
+  market,
+  symbol,
+  sector,
   className,
 }: {
-  category: string;
-  rarity: Rarity;
+  market: "stock" | "crypto";
+  symbol: string;
+  sector?: string;
   className?: string;
 }) {
-  const I = ICONS[category] ?? Gem;
-  const image = (
-    {
-      vehicles: "car",
-      aircraft: "jet",
-      yachts: "yacht",
-      watches: "watch",
-      paintings: "art",
-      antiques: "crown",
-      jewelry: "diamond",
-      luxprop: "house",
-    } as Record<string, string>
-  )[category];
+  const src = market === "stock" ? stockLogo(symbol, sector ?? "Technology") : cryptoLogo(symbol);
   return (
     <div
       className={cn(
-        "game-panel relative flex items-center justify-center overflow-hidden rounded-lg border bg-muted/60",
+        "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/80 bg-card shadow-inner",
+        className,
+      )}
+    >
+      <img
+        src={src}
+        alt={symbol}
+        referrerPolicy="no-referrer"
+        className="h-full w-full scale-[1.28] rounded-full object-cover object-center"
+        loading="lazy"
+      />
+    </div>
+  );
+}
+
+export function CollectibleIcon({
+  category,
+  itemId,
+  rarity = "Ungraded",
+  className,
+}: {
+  category: string;
+  itemId?: string;
+  rarity?: AssetGrade;
+  className?: string;
+}) {
+  const src = itemId
+    ? collectibleItemTexture(itemId, category)
+    : collectibleCategoryTexture(category);
+  return (
+    <div
+      className={cn(
+        "game-panel relative flex items-center justify-center overflow-hidden rounded-xl border bg-muted/60",
         RARITY_TONE[rarity],
         className,
       )}
     >
-      {image ? (
-        <img src={art(image)} alt="" className="h-full w-full object-contain p-2" loading="lazy" />
-      ) : (
-        <I className="game-icon h-1/2 w-1/2" />
-      )}
+      <img
+        src={src}
+        alt={itemId ?? category}
+        referrerPolicy="no-referrer"
+        className="h-full w-full scale-[1.08] object-cover object-center"
+        loading="lazy"
+      />
     </div>
   );
 }

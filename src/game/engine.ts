@@ -8,18 +8,32 @@ import {
   PROPERTY_UPGRADES,
   RESEARCH,
   RESEARCH_BY_ID,
+  type CasinoDenomination,
   type CompanyDef,
   type GlobalMods,
 } from "./config";
-import { applyCasino, casinoOf, type CasinoAction } from "./casino";
+import {
+  addDenomChips,
+  applyCasino,
+  casinoOf,
+  removeDenomChips,
+  syncDenoms,
+  type CasinoAction,
+} from "./casino";
 import {
   COLLECTIBLE_BY_ID,
   COLLECTIONS,
+  GRADING_FEE_PCT,
   HOLD_HOURS,
   RESALE_PCT,
-  currentValue,
+  collectibleStatBonus,
+  collectibleValue,
+  resolveCollectibleId,
+  rollRarity,
 } from "./collectibles";
 import {
+  LEGACY_CRYPTO_MAP,
+  LEGACY_STOCK_MAP,
   cryptoLiquidity,
   cryptoPriceAtTick,
   cryptoTick,
@@ -32,6 +46,14 @@ import {
   type CryptoDef,
   type StockDef,
 } from "./market";
+import {
+  BIO_COOLDOWN_MS,
+  BIO_MAX_LENGTH,
+  DEFAULT_AVATAR,
+  DEFAULT_TITLE,
+  earnedTitles,
+  ownedAvatars,
+} from "./profile";
 import { clamp, hashStr, wave } from "./rng";
 import {
   BankAction,
@@ -44,9 +66,9 @@ import {
 } from "./types";
 import {
   BANK_BY_ID,
+  PRIMARY_BANK_ID,
   calculateBankCreditLimit,
   getTotalActiveDebt,
-  MAX_ACTIVE_BANK_ACCOUNTS,
 } from "./banking";
 
 export type Ctx = {
@@ -61,6 +83,9 @@ export type Ctx = {
 const STAT_KEYS: StatKey[] = [
   "clicks",
   "lifetimeEarned",
+  "empireSpent",
+  "assetHoldingsValue",
+  "tradingIncome",
   "companiesBought",
   "companiesSold",
   "branches",
@@ -81,7 +106,7 @@ const STAT_KEYS: StatKey[] = [
   "clickerLevel",
 ];
 
-export function newPlayer(now: number, username: string): PlayerState {
+export function newPlayer(now: number, username = "Tycoon"): PlayerState {
   return {
     v: 1,
     username,
@@ -100,13 +125,20 @@ export function newPlayer(now: number, username: string): PlayerState {
     soldCompanies: [],
     capacity: { slots: BALANCE.capacity.initial, level: 0, upgrading: null },
     research: { built: false, facilityLevel: 0, slots: 1, active: [], done: [], rp: 0, rpTotal: 0 },
-    stocks: { holdings: {}, lastEvalTick: stockTick(now), lastDivDay: Math.floor(now / 86400_000) },
+    stocks: {
+      holdings: {},
+      lastEvalTick: stockTick(now),
+      lastDivDay: Math.floor(now / 86400_000),
+      lastDivHour: Math.floor(now / 3600_000),
+      uncollectedDividends: 0,
+    },
     crypto: { holdings: {}, lastEvalTick: cryptoTick(now) },
     orders: [],
     properties: {},
     soldProperties: [],
     collectibles: {},
     collectibleSales: [],
+    lastGradingReport: null,
     collectionsRewarded: [],
     achievements: {},
     stats: Object.fromEntries(STAT_KEYS.map((k) => [k, 0])) as Record<StatKey, number>,
@@ -115,11 +147,12 @@ export function newPlayer(now: number, username: string): PlayerState {
     lastOffline: null,
     corp: { id: null, pending: [], cooldownUntil: 0, lastShiftAt: 0, joinedAt: 0 },
     profile: {
-      title: "Aspiring Tycoon",
+      title: DEFAULT_TITLE,
       bio: "",
-      avatar: "briefcase",
+      avatar: DEFAULT_AVATAR,
       theme: "violet",
       featured: null,
+      ownedAvatars: [DEFAULT_AVATAR],
     },
     bankAccounts: {},
     tax: {
@@ -176,27 +209,126 @@ export function reconcileState(s: PlayerState, now: number) {
     holdings: {},
     lastEvalTick: stockTick(now),
     lastDivDay: Math.floor(now / 86400_000),
+    lastDivHour: Math.floor(now / 3600_000),
+    uncollectedDividends: 0,
   };
+  if (s.stocks.lastDivHour === undefined) {
+    s.stocks.lastDivHour = (s.stocks.lastDivDay ?? Math.floor(now / 86400_000)) * 24;
+  }
+  if (s.stocks.uncollectedDividends === undefined) {
+    s.stocks.uncollectedDividends = 0;
+  }
+  const stockMap = stocksNow(now).map;
+  for (const [oldSym, h] of Object.entries(s.stocks.holdings)) {
+    const mapped = LEGACY_STOCK_MAP[oldSym];
+    if (mapped && !stockMap[oldSym] && stockMap[mapped]) {
+      const target = (s.stocks.holdings[mapped] ??= { qty: 0, reserved: 0, cost: 0 });
+      target.qty += h.qty;
+      target.reserved += h.reserved;
+      target.cost += h.cost;
+      delete s.stocks.holdings[oldSym];
+    }
+  }
   s.crypto ||= { holdings: {}, lastEvalTick: cryptoTick(now) };
+  // Migrate legacy synthetic crypto tickers cleanly to curated real-life coins
+  const cryptoMap = cryptoNow(now).map;
+  for (const [oldSym, h] of Object.entries(s.crypto.holdings)) {
+    const mapped = LEGACY_CRYPTO_MAP[oldSym];
+    if (mapped && !cryptoMap[oldSym] && cryptoMap[mapped]) {
+      const target = (s.crypto.holdings[mapped] ??= { qty: 0, reserved: 0, cost: 0 });
+      target.qty += h.qty;
+      target.reserved += h.reserved;
+      target.cost += h.cost;
+      delete s.crypto.holdings[oldSym];
+    }
+  }
   s.orders ||= [];
+  for (const o of s.orders) {
+    if (o.market === "stock" && LEGACY_STOCK_MAP[o.sym] && !stockMap[o.sym]) {
+      o.sym = LEGACY_STOCK_MAP[o.sym]!;
+    }
+    if (o.market === "crypto" && LEGACY_CRYPTO_MAP[o.sym] && !cryptoMap[o.sym]) {
+      o.sym = LEGACY_CRYPTO_MAP[o.sym]!;
+    }
+  }
   s.properties ||= {};
   s.soldProperties ||= [];
   s.collectibles ||= {};
+  for (const cItem of Object.values(s.collectibles)) {
+    if (!COLLECTIBLE_BY_ID[cItem.itemId]) {
+      cItem.itemId = resolveCollectibleId(cItem.itemId);
+    }
+    if (!cItem.rarity) cItem.rarity = "Common";
+  }
   s.collectibleSales ||= [];
+  if (s.lastGradingReport === undefined) s.lastGradingReport = null;
   s.collectionsRewarded ||= [];
   s.achievements ||= {};
   s.stats ||= Object.fromEntries(STAT_KEYS.map((k) => [k, 0])) as Record<StatKey, number>;
+  for (const k of STAT_KEYS) {
+    if (s.stats[k] === undefined) s.stats[k] = 0;
+  }
   s.history ||= { hourly: [{ t: now, nw: 0, cash: 0 }], daily: [{ t: now, nw: 0, cash: 0 }] };
   s.notifications ||= [];
   s.corp ||= { id: null, pending: [], cooldownUntil: 0, lastShiftAt: 0, joinedAt: 0 };
   s.profile ||= {
-    title: "Aspiring Tycoon",
+    title: DEFAULT_TITLE,
     bio: "",
-    avatar: "briefcase",
+    avatar: DEFAULT_AVATAR,
     theme: "violet",
     featured: null,
+    ownedAvatars: [DEFAULT_AVATAR],
   };
+  if (!s.profile.title || s.profile.title === "Aspiring Tycoon") {
+    s.profile.title = DEFAULT_TITLE;
+  }
+  if ((s.profile.bio || "").length > BIO_MAX_LENGTH) {
+    s.profile.bio = s.profile.bio.slice(0, BIO_MAX_LENGTH);
+  }
+  if (!s.profile.avatar) s.profile.avatar = DEFAULT_AVATAR;
+  s.profile.ownedAvatars = ownedAvatars(s);
+  if (!s.profile.ownedAvatars.includes(s.profile.avatar)) {
+    s.profile.avatar = DEFAULT_AVATAR;
+  }
+  if (s.casino && !s.casino.denoms) {
+    syncDenoms(s.casino);
+  }
+
   s.bankAccounts ||= {};
+  // Consolidate legacy multi-bank accounts into the unified PRIMARY_BANK_ID ("BNK-001")
+  const bankKeys = Object.keys(s.bankAccounts);
+  const legacyKeys = bankKeys.filter((k) => k !== PRIMARY_BANK_ID);
+  if (legacyKeys.length > 0) {
+    const primary = (s.bankAccounts[PRIMARY_BANK_ID] ??= {
+      inst: PRIMARY_BANK_ID,
+      defId: PRIMARY_BANK_ID,
+      balance: 0,
+      createdAt: s.createdAt || now,
+      transactions: [],
+      loans: [],
+    });
+    for (const k of legacyKeys) {
+      const acc = s.bankAccounts[k];
+      if (!acc) continue;
+      primary.balance += acc.balance || 0;
+      primary.createdAt = Math.min(primary.createdAt, acc.createdAt || now);
+      if (acc.transactions?.length) primary.transactions.push(...acc.transactions);
+      if (acc.loans?.length) primary.loans.push(...acc.loans);
+      delete s.bankAccounts[k];
+    }
+    primary.transactions.sort((a, b) => a.at - b.at);
+    for (const co of Object.values(s.companies)) {
+      if (co.incomeBankId && co.incomeBankId !== PRIMARY_BANK_ID) {
+        co.incomeBankId = PRIMARY_BANK_ID;
+      }
+    }
+    for (const pr of Object.values(s.properties)) {
+      if (pr.incomeBankId && pr.incomeBankId !== PRIMARY_BANK_ID) {
+        pr.incomeBankId = PRIMARY_BANK_ID;
+      }
+    }
+  }
+
   s.tax ||= {
     liability: 0,
     periodIncome: { business: 0, rental: 0, investment: 0, personal: 0 },
@@ -307,7 +439,6 @@ export function clickReq(level: number) {
   if (level <= C.earlyReqs.length) return C.earlyReqs[level - 1];
   return C.reqBase + C.reqStep * (level - 8);
 }
-/** Normalized exponential: exactly baseValue at L1 and maxValue at hardCap. */
 export function clickBase(level: number) {
   const C = BALANCE.clicker;
   const L = clamp(level, 1, C.hardCap);
@@ -324,28 +455,30 @@ export function clickCap(s: PlayerState, mods: GlobalMods) {
 }
 
 export function personalMods(s: PlayerState): GlobalMods {
-  reconcileState(s, Date.now()); // Fallback now, should be fine for mods
   const m: GlobalMods = { ...EMPTY_MODS };
-  for (const id of s.research.done) {
+  for (const id of s.research?.done ?? []) {
     const r = RESEARCH_BY_ID[id];
     if (!r) continue;
     for (const [k, v] of Object.entries(r.effect)) m[k as keyof GlobalMods] += v as number;
   }
-  // Luxury benefits: highest per bonus category only
+  // Graded Asset benefits: highest per bonus category only
   const best: Partial<Record<keyof GlobalMods, number>> = {};
   const owned = new Set<string>();
-  for (const o of Object.values(s.collectibles)) {
+  for (const o of Object.values(s.collectibles ?? {})) {
     owned.add(o.itemId);
-    const b = COLLECTIBLE_BY_ID[o.itemId]?.bonus;
+    const def = COLLECTIBLE_BY_ID[o.itemId];
+    if (!def) continue;
+    const b = collectibleStatBonus(def, o.rarity);
     if (b && (best[b.key] ?? 0) < b.value) best[b.key] = b.value;
   }
   for (const [k, v] of Object.entries(best)) m[k as keyof GlobalMods] += v as number;
-  for (const col of COLLECTIONS)
+  for (const col of COLLECTIONS) {
     if (col.items.every((i) => owned.has(i))) m[col.bonus.key] += col.bonus.value;
+  }
   m.feeCut = Math.min(0.6, m.feeCut);
   return m;
 }
-/** corp modifier applied to base first, then personal. */
+
 export const mult = (key: keyof GlobalMods, p?: GlobalMods, corp?: GlobalMods) =>
   (1 + (corp?.[key] ?? 0)) * (1 + (p?.[key] ?? 0));
 
@@ -359,7 +492,6 @@ export function gainXp(c: Ctx, amount: number, mods?: GlobalMods) {
     c.s.level += 1;
     notify(c, "level", `Reached Player Level ${c.s.level}!`);
   }
-  // one-time level rewards (never double-granted)
   while (c.s.levelRewarded < c.s.level) {
     c.s.levelRewarded += 1;
     const L = c.s.levelRewarded;
@@ -538,12 +670,9 @@ function simulateCompanies(
     let net = rev - exp;
     let incomeDeposited = false;
     if (net >= 0) {
-      // Pay down liabilities first (from profits).
       const pay = Math.min(o.liabilities, net * 0.25);
       o.liabilities -= pay;
       net -= pay;
-      // Linked businesses send newly generated net income directly to the
-      // selected bank. Existing wallet balances remain untouched.
       if (net > 0 && o.incomeBankId) {
         incomeDeposited = creditToBank(
           c,
@@ -655,7 +784,6 @@ function fillOrder(c: Ctx, o: Order, qty: number, price: number, fee: number) {
     if (o.kind === "market") {
       debit(c, cost + feeAmt, `${o.market}_buy`, `exchange:${o.market}`, ent);
     } else {
-      // consume reservation
       const resv = Math.min(o.reservedCash, qty * (o.limit ?? price) * (1 + fee));
       o.reservedCash -= resv;
       c.s.reservedCash -= resv;
@@ -682,6 +810,7 @@ function fillOrder(c: Ctx, o: Order, qty: number, price: number, fee: number) {
     const proceeds = cost - feeAmt;
     const profit = proceeds - totalCostBasis;
     c.s.cash += proceeds;
+    c.s.stats.tradingIncome = (c.s.stats.tradingIncome || 0) + Math.max(0, profit);
     if (profit > 0 && c.s.tax) {
       c.s.tax.periodIncome.investment += profit;
       c.s.tax.liability += profit * BALANCE.tax.rates.investment;
@@ -775,23 +904,28 @@ function evaluateOrders(c: Ctx, p: GlobalMods) {
     }
     state.lastEvalTick = nowTick;
   }
-  // dividends
-  const today = Math.floor(c.now / 86400_000);
-  const startDay = Math.max(c.s.stocks.lastDivDay + 1, today - 30);
+
+  // Hourly dividends accrued into manual collection balance
+  const currentHour = Math.floor(c.now / 3600_000);
+  const lastHour = c.s.stocks.lastDivHour ?? currentHour;
+  const startHour = Math.max(lastHour + 1, currentHour - 24 * 30);
   let divs = 0;
-  for (let d = startDay; d <= today; d++) {
+  for (let hIdx = startHour; hIdx <= currentHour; hIdx++) {
+    const dayIdx = Math.floor(hIdx / 24);
+    const tickAtHour = stockTick(hIdx * 3600_000);
     for (const [sym, h] of Object.entries(c.s.stocks.holdings)) {
       const def = stocksNow(c.now).map[sym];
-      if (!def || def.dividendYield <= 0 || !stockProfitable(def, d)) continue;
-      const price = stockPriceAtTick(def, stockTick(d * 86400_000));
-      divs += (h.qty * price * def.dividendYield) / 365;
+      if (!def || def.dividendYield <= 0 || !stockProfitable(def, dayIdx)) continue;
+      const price = stockPriceAtTick(def, tickAtHour);
+      divs += (h.qty * price * def.dividendYield) / (365 * 24);
     }
   }
-  c.s.stocks.lastDivDay = today;
+  c.s.stocks.lastDivHour = currentHour;
+  c.s.stocks.lastDivDay = Math.floor(c.now / 86400_000);
   if (divs > 0) {
-    credit(c, divs, "dividend", "exchange:stock", "dividends", true, "investment");
-    c.s.stats.dividends += divs;
+    c.s.stocks.uncollectedDividends = (c.s.stocks.uncollectedDividends || 0) + divs;
   }
+
   c.s.orders = c.s.orders
     .filter((o) => isOpen(o) || c.now - o.updatedAt < 14 * 86400_000)
     .slice(0, 200);
@@ -817,7 +951,7 @@ export function netWorth(s: PlayerState, now: number) {
     business += companyValuation(o) + o.reserves + o.uncollected;
     liabilities += o.liabilities;
   }
-  let stocks = 0;
+  let stocks = s.stocks.uncollectedDividends || 0;
   const stockDefinitions = stocksNow(now).map;
   const currentStockTick = stockTick(now);
   for (const [k, h] of Object.entries(s.stocks.holdings)) {
@@ -836,7 +970,7 @@ export function netWorth(s: PlayerState, now: number) {
   let collectibles = 0;
   for (const o of Object.values(s.collectibles)) {
     const d = COLLECTIBLE_BY_ID[o.itemId];
-    if (d) collectibles += currentValue(d, now);
+    if (d) collectibles += collectibleValue(d, o.rarity);
   }
   const assets = business + stocks + crypto + property + collectibles;
   return {
@@ -858,7 +992,14 @@ function statValue(s: PlayerState, k: StatKey) {
 }
 export function checkAchievements(c: Ctx) {
   c.s.stats.clickerLevel = c.s.clicker.level;
-  c.s.stats.netWorth = Math.max(c.s.stats.netWorth, netWorth(c.s, c.now).total);
+  const nw = netWorth(c.s, c.now);
+  c.s.stats.netWorth = Math.max(c.s.stats.netWorth, nw.total);
+  c.s.stats.assetHoldingsValue = Math.max(
+    c.s.stats.assetHoldingsValue || 0,
+    Math.round(nw.stocks + nw.crypto + nw.collectibles),
+  );
+  c.s.profile.ownedAvatars = ownedAvatars(c.s);
+
   // collections one-time rewards
   const owned = new Set(Object.values(c.s.collectibles).map((o) => o.itemId));
   for (const col of COLLECTIONS) {
@@ -890,8 +1031,6 @@ export function checkAchievements(c: Ctx) {
       if (a.minLevel && c.s.level < a.minLevel) continue;
       if (v >= a.target) {
         c.s.achievements[a.id] = { at: c.now };
-        const mult = BALANCE.achievementTierMult[a.tier] ?? 1;
-        void mult;
         grant(c, a.reward, a.id);
         notify(
           c,
@@ -903,6 +1042,7 @@ export function checkAchievements(c: Ctx) {
     }
     if (!changed) break;
   }
+  c.s.profile.ownedAvatars = ownedAvatars(c.s);
 }
 function grant(c: Ctx, r: { cash: number; xp: number; rp: number }, id: string) {
   credit(c, r.cash, "achievement_reward", "game:rewards", id, true, "personal");
@@ -971,8 +1111,6 @@ export function tick(c: Ctx) {
     const amt = e.net * rentHours;
     pr.rentTotal += amt;
     rent += amt;
-    // Newly generated rent is deposited directly when this property is linked.
-    // Previously accumulated wallet balances remain available for collection.
     const linkedDeposit =
       amt > 0 && pr.incomeBankId
         ? creditToBank(c, pr.incomeBankId, amt, "property_income", "rent_income", pr.inst, "rental")
@@ -1000,15 +1138,11 @@ export function tick(c: Ctx) {
   // Real-time Interest & Savings Yield Logic
   for (const acc of Object.values(s.bankAccounts || {})) {
     const bankDef = BANK_BY_ID[acc.defId];
-    // Daily savings yield compounding on positive balance
     if (acc.balance > 0 && dt > 0) {
-      // Exponential accrual is partition-invariant: one long offline tick and
-      // many short online ticks produce the same result.
-      const annualYield = bankDef?.savingsApy ?? 0.025;
+      const annualYield = bankDef?.savingsApy ?? 0.032;
       const earnedBalance = acc.balance * Math.pow(1 + annualYield, dt / (365 * 86400000));
       if (earnedBalance > acc.balance) acc.balance = earnedBalance;
     }
-    // Real-time interest on active loans
     for (const loan of acc.loans || []) {
       if (loan.status === "active" && dt > 0) {
         const dailyRate =
@@ -1029,9 +1163,6 @@ export function tick(c: Ctx) {
     if (report.lines.length || report.rent || report.rp) s.lastOffline = report;
   }
   snapshot(c);
-  // Achievement evaluation is orchestrated once after tick + action processing
-  // by the persistence adapter. Running it here as well would duplicate the
-  // full achievement and net-worth scans on every player action.
 }
 
 function snapshot(c: Ctx) {
@@ -1065,6 +1196,7 @@ export type Action =
   | { type: "sellCompany"; inst: string; confirm: "SELL" }
   | { type: "collect"; inst?: string }
   | { type: "collectRent"; inst?: string }
+  | { type: "collectDividends" }
   | { type: "hire"; inst: string; role: string; count: number; pkg?: number }
   | { type: "fire"; inst: string; role: string; count: number }
   | { type: "companyUpgrade"; inst: string; upgradeId: string }
@@ -1094,9 +1226,10 @@ export type Action =
   | { type: "propertyUpgrade"; inst: string; upgradeId: string }
   | { type: "buyCollectible"; itemId: string; soldCount: number }
   | { type: "sellCollectible"; inst: string }
+  | { type: "gradeCollectibles"; insts: string[] }
   | { type: "dismissOffline" }
-  | { type: "buyChips"; chips: number }
-  | { type: "sellChips"; chips: number }
+  | { type: "buyChips"; chips: number; denom?: CasinoDenomination }
+  | { type: "sellChips"; chips: number; denom?: CasinoDenomination }
   | CasinoAction
   | BankAction
   | { type: "noop" };
@@ -1126,7 +1259,7 @@ export function apply(c: Ctx, a: Action) {
   const p = personalMods(s);
   switch (a.type) {
     case "dismissOffline":
-      if (a.type === "dismissOffline") s.lastOffline = null;
+      s.lastOffline = null;
       break;
     case "registerBank":
     case "deposit":
@@ -1156,7 +1289,7 @@ export function apply(c: Ctx, a: Action) {
       const cap = clickCap(s, p);
       let earned = 0;
       for (let i = 0; i < n; i++) {
-        earned += clickBase(s.clicker.level) * mult("clickPct", p, c.corpMods); // completing click paid at old value
+        earned += clickBase(s.clicker.level) * mult("clickPct", p, c.corpMods);
         if (s.clicker.level >= BALANCE.clicker.hardCap) {
           s.clicker.count = 0;
           continue;
@@ -1171,7 +1304,6 @@ export function apply(c: Ctx, a: Action) {
         }
       }
       s.stats.clicks += n;
-      // Clicks are high-frequency, low-value: no ledger row (keeps DB writes small).
       if (earned > 0) {
         s.cash += earned;
         s.stats.lifetimeEarned += earned;
@@ -1191,9 +1323,36 @@ export function apply(c: Ctx, a: Action) {
       if (a.username !== undefined && a.username !== s.username) {
         throw new GameError("Username is permanently locked after account creation");
       }
-      if (a.title !== undefined) s.profile.title = a.title.slice(0, 40);
-      if (a.bio !== undefined) s.profile.bio = a.bio.slice(0, 280);
-      if (a.avatar !== undefined) s.profile.avatar = a.avatar.slice(0, 20);
+      if (a.title !== undefined) {
+        const allowed = earnedTitles(s);
+        if (!allowed.includes(a.title)) {
+          throw new GameError("Title has not been earned yet");
+        }
+        s.profile.title = a.title;
+      }
+      if (a.avatar !== undefined) {
+        const allowedAvatars = ownedAvatars(s);
+        if (!allowedAvatars.includes(a.avatar)) {
+          throw new GameError("Avatar emblem has not been acquired yet");
+        }
+        s.profile.avatar = a.avatar;
+        s.profile.ownedAvatars = allowedAvatars;
+      }
+      if (a.bio !== undefined) {
+        const trimmedBio = a.bio.trim();
+        if (trimmedBio.length > BIO_MAX_LENGTH) {
+          throw new GameError(`Profile description cannot exceed ${BIO_MAX_LENGTH} characters`);
+        }
+        if (trimmedBio !== (s.profile.bio || "")) {
+          if (s.profile.bioUpdatedAt !== undefined && c.now < (s.profile.bioCooldownUntil ?? 0)) {
+            const remHours = Math.ceil(((s.profile.bioCooldownUntil ?? 0) - c.now) / 3600_000);
+            throw new GameError(`Profile description cooldown active (${remHours}h remaining)`);
+          }
+          s.profile.bio = trimmedBio;
+          s.profile.bioUpdatedAt = c.now;
+          s.profile.bioCooldownUntil = c.now + BIO_COOLDOWN_MS;
+        }
+      }
       if (a.theme !== undefined) s.profile.theme = a.theme.slice(0, 20);
       if (a.featured !== undefined) {
         if (a.featured && !s.collectibles[a.featured]) throw new GameError("Not owned");
@@ -1209,6 +1368,7 @@ export function apply(c: Ctx, a: Action) {
       if (Object.keys(s.companies).length >= s.capacity.slots)
         throw new GameError("No free company slots — upgrade Business Management");
       debit(c, d.price, "company_purchase", "market:companies", d.id);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + d.price;
       const inst = uid(c, "c");
       const staff: Record<string, number> = {};
       let left = d.startStaff;
@@ -1245,7 +1405,6 @@ export function apply(c: Ctx, a: Action) {
       const { o, d } = getCompany(c, a.inst);
       if (a.confirm !== "SELL") throw new GameError("Sale not confirmed");
       const q = companySaleQuote(o, c.now);
-      if (!q.eligible) throw new GameError("Minimum ownership period (6h) not reached");
       if (q.injectionNeeded > 0)
         debit(c, q.injectionNeeded, "company_settlement", `company:${o.inst}`, d.id);
       c.s.cash += q.payout;
@@ -1326,6 +1485,16 @@ export function apply(c: Ctx, a: Action) {
       s.stats.rentEarned += collectedTotal;
       break;
     }
+    case "collectDividends": {
+      const amt = s.stocks.uncollectedDividends ?? 0;
+      if (!(amt > 0)) throw new GameError("No dividends to collect");
+      s.stocks.uncollectedDividends = 0;
+      credit(c, amt, "dividend_collect", "exchange:stock", "dividends", true, "investment");
+      s.stats.dividends += amt;
+      s.stats.tradingIncome = (s.stats.tradingIncome || 0) + amt;
+      notify(c, "info", `Collected $${r2(amt).toLocaleString()} in stock dividends`);
+      break;
+    }
     case "hire": {
       const { o, d } = getCompany(c, a.inst);
       const role = d.roles.find((r) => r.role === a.role);
@@ -1369,6 +1538,7 @@ export function apply(c: Ctx, a: Action) {
         throw new GameError(`Requires research: ${RESEARCH_BY_ID[u.research]?.name}`);
       const cost = upgradeCost(u.cost, u.growth, lvl);
       debit(c, cost, "company_upgrade", `company:${o.inst}`, `${d.id}:${u.id}`);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       o.upgrades[u.id] = lvl + 1;
       o.upgradeValue += cost;
       s.stats.upgrades += 1;
@@ -1380,6 +1550,7 @@ export function apply(c: Ctx, a: Action) {
       if (o.capLevel >= d.capacityUpgrade.max) throw new GameError("Employee capacity at maximum");
       const cost = upgradeCost(d.capacityUpgrade.cost, d.capacityUpgrade.growth, o.capLevel);
       debit(c, cost, "company_upgrade", `company:${o.inst}`, `${d.id}:capacity`);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       o.capLevel += 1;
       o.upgradeValue += cost;
       s.stats.upgrades += 1;
@@ -1391,6 +1562,7 @@ export function apply(c: Ctx, a: Action) {
       if (o.branches >= d.branch.max) throw new GameError("Maximum branches reached");
       const cost = branchCost(d, o.branches);
       debit(c, cost, "branch_purchase", `company:${o.inst}`, d.id);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       o.branches += 1;
       o.upgradeValue += cost;
       s.stats.branches += 1;
@@ -1401,7 +1573,7 @@ export function apply(c: Ctx, a: Action) {
       const { o, d } = getCompany(c, a.inst);
       const amt = Math.floor(a.amount);
       if (amt <= 0) throw new GameError("Invalid amount");
-      debit(c, amt, "capital_injection", `company:${o.inst}`, d.id); // transfer, not revenue
+      debit(c, amt, "capital_injection", `company:${o.inst}`, d.id);
       let rem = amt;
       const pay = Math.min(o.liabilities, rem);
       o.liabilities -= pay;
@@ -1423,6 +1595,7 @@ export function apply(c: Ctx, a: Action) {
     case "capacityUpgrade": {
       const cost = capacityUpgradeCost(s.capacity.level);
       debit(c, cost, "capacity_upgrade", "game:business_management");
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       s.capacity.upgrading = null;
       s.capacity.slots += 1;
       s.capacity.level += 1;
@@ -1448,6 +1621,7 @@ export function apply(c: Ctx, a: Action) {
         "game:research",
         `facility_lv${nextLvl}`,
       );
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       s.research.built = true;
       s.research.facilityLevel = nextLvl;
       s.research.slots = Math.max(s.research.slots || 1, 1 + Math.floor(nextLvl / 3));
@@ -1460,6 +1634,7 @@ export function apply(c: Ctx, a: Action) {
       const cost = BALANCE.research.slotCosts[s.research.slots - 1];
       if (cost === undefined) throw new GameError("Maximum research slots");
       debit(c, cost, "research_upgrade", "game:research");
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       s.research.slots += 1;
       break;
     }
@@ -1478,6 +1653,7 @@ export function apply(c: Ctx, a: Action) {
         throw new GameError("Prerequisites not met");
       if (s.research.rp < r.rp) throw new GameError("Not enough RP");
       debit(c, r.cost, "research_project", "game:research", r.id);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + r.cost;
       s.research.rp -= r.rp;
       c.ledger.push({
         type: "rp_spend",
@@ -1495,7 +1671,11 @@ export function apply(c: Ctx, a: Action) {
         a.market === "stock" ? UNLOCKS.stocks : UNLOCKS.crypto,
         a.market === "stock" ? "Stock market" : "Crypto exchange",
       );
-      const def = a.market === "stock" ? stocksNow(c.now).map[a.sym] : cryptoNow(c.now).map[a.sym];
+      const sym =
+        a.market === "stock"
+          ? (LEGACY_STOCK_MAP[a.sym] ?? a.sym)
+          : (LEGACY_CRYPTO_MAP[a.sym] ?? a.sym);
+      const def = a.market === "stock" ? stocksNow(c.now).map[sym] : cryptoNow(c.now).map[sym];
       if (!def) throw new GameError("Unknown asset");
       const qty = a.market === "stock" ? Math.floor(a.qty) : Math.round(a.qty * 1e6) / 1e6;
       if (!(qty > 0)) throw new GameError("Invalid quantity");
@@ -1509,13 +1689,13 @@ export function apply(c: Ctx, a: Action) {
         a.market === "stock"
           ? stockPriceAtTick(def as StockDef, tk)
           : cryptoPriceAtTick(def as CryptoDef, tk);
-      const h = holdingsOf(c, a.market)[a.sym];
+      const h = holdingsOf(c, a.market)[sym];
       if (a.side === "sell" && (!h || h.qty - h.reserved + 1e-9 < qty))
         throw new GameError("You don't own enough");
       const o: Order = {
         id: uid(c, "o"),
         market: a.market,
-        sym: a.sym,
+        sym,
         side: a.side,
         kind: a.kind,
         qty,
@@ -1538,7 +1718,6 @@ export function apply(c: Ctx, a: Action) {
         if (q <= 0) throw new GameError("No liquidity right now");
         fillOrder(c, o, q, price, fee);
         if (o.filled < o.qty) o.status = "Partially Filled";
-        // remainder of a market order is cancelled (no fee)
         if (o.status === "Partially Filled") o.status = "Cancelled";
         if (o.filled >= o.qty) o.status = "Executed";
         gainXp(c, 5, p);
@@ -1552,7 +1731,7 @@ export function apply(c: Ctx, a: Action) {
         }
         if (a.side === "buy") {
           const resv = qty * o.limit! * (1 + fee);
-          debit(c, resv, "order_reserve", "player:reserved", `${a.market}:${a.sym}`);
+          debit(c, resv, "order_reserve", "player:reserved", `${a.market}:${sym}`);
           s.reservedCash += resv;
           o.reservedCash = resv;
         } else h!.reserved += qty;
@@ -1573,6 +1752,7 @@ export function apply(c: Ctx, a: Action) {
       if (Object.values(s.properties).some((x) => x.defId === d.id))
         throw new GameError("You already own this property");
       debit(c, d.price, "property_purchase", "market:property", d.id);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + d.price;
       const inst = uid(c, "p");
       s.properties[inst] = {
         inst,
@@ -1592,30 +1772,32 @@ export function apply(c: Ctx, a: Action) {
     case "sellChips": {
       const n = Math.floor(a.chips);
       if (!(n >= 1)) throw new GameError("Enter at least 1 chip");
+      const denom: CasinoDenomination = a.denom === 1000 || a.denom === 5000 ? a.denom : 100;
+      const dollars = n * denom;
+      const baseUnits = r2(dollars / CASINO.chipValue);
       const cs = casinoOf(s);
       if (a.type === "buyChips") {
-        debit(c, n * CASINO.chipValue, "chips_buy", "casino:chips");
-        cs.chips = r2(cs.chips + n);
+        debit(c, dollars, "chips_buy", "casino:chips", undefined, { denom, count: n });
+        cs.chips = r2(cs.chips + baseUnits);
+        addDenomChips(cs, denom, n);
       } else {
-        if (cs.chips + 1e-9 < n) throw new GameError("Not enough chips");
-        cs.chips = r2(cs.chips - n);
-        credit(
-          c,
-          n * CASINO.chipValue,
-          "chips_sell",
-          "casino:chips",
-          undefined,
-          false,
-          "investment",
-        );
+        if (cs.chips + 1e-9 < baseUnits) throw new GameError("Not enough chips in wallet");
+        cs.chips = r2(cs.chips - baseUnits);
+        removeDenomChips(cs, denom, n);
+        credit(c, dollars, "chips_sell", "casino:chips", undefined, false, "investment");
       }
       break;
     }
-    case "casinoRoulette":
+    case "casinoDice":
+    case "casinoPlinko":
     case "casinoKeno":
-    case "casinoBlackjack":
+    case "casinoCrash":
     case "casinoMines":
+    case "casinoChicken":
     case "casinoHilo":
+    case "casinoSlot":
+    case "casinoRoulette":
+    case "casinoBlackjack":
       if (!c.casinoSeed) throw new GameError("Casino unavailable");
       applyCasino(s, a, c.casinoSeed, c.now);
       break;
@@ -1671,6 +1853,7 @@ export function apply(c: Ctx, a: Action) {
         throw new GameError("Requires research");
       const cost = Math.round(d.price * u.costPct * Math.pow(1.5, lvl));
       debit(c, cost, "property_upgrade", "properties", `${d.id}:${u.id}`);
+      s.stats.empireSpent = (s.stats.empireSpent || 0) + cost;
       pr.upgrades[u.id] = lvl + 1;
       pr.upgradeValue += cost;
       break;
@@ -1687,7 +1870,8 @@ export function apply(c: Ctx, a: Action) {
         itemId: d.id,
         boughtAt: c.now,
         price: d.price,
-        holdUntil: c.now + HOLD_HOURS[d.rarity] * 3600_000,
+        holdUntil: c.now + HOLD_HOURS * 3600_000,
+        rarity: "Ungraded",
       };
       s.stats.collectiblesBought += 1;
       gainXp(c, 10, p);
@@ -1696,11 +1880,11 @@ export function apply(c: Ctx, a: Action) {
     case "sellCollectible": {
       const o = s.collectibles[a.inst];
       if (!o) throw new GameError("Not found");
-      const d = COLLECTIBLE_BY_ID[o.itemId]!;
-      if (d.restrictedResale) throw new GameError("This special edition has resale restrictions");
+      const d = COLLECTIBLE_BY_ID[o.itemId];
+      if (!d) throw new GameError("Unknown asset definition");
       if (c.now < o.holdUntil) throw new GameError("Holding period not finished");
-      const value = currentValue(d, c.now);
-      const payout = value * RESALE_PCT[d.rarity];
+      const value = collectibleValue(d, o.rarity);
+      const payout = value * RESALE_PCT;
       c.s.cash += payout;
       c.ledger.push({
         type: "collectible_sale",
@@ -1715,26 +1899,61 @@ export function apply(c: Ctx, a: Action) {
       delete s.collectibles[a.inst];
       break;
     }
+    case "gradeCollectibles": {
+      const uniqueInsts = [...new Set(a.insts)].filter(Boolean);
+      if (!uniqueInsts.length) throw new GameError("Select at least one ungraded asset");
+      const targets: {
+        o: PlayerState["collectibles"][string];
+        d: NonNullable<(typeof COLLECTIBLE_BY_ID)[string]>;
+      }[] = [];
+      let totalBase = 0;
+      for (const inst of uniqueInsts) {
+        const o = s.collectibles[inst];
+        if (!o) throw new GameError("Asset not found in inventory");
+        if (o.rarity && o.rarity !== "Ungraded") {
+          throw new GameError("Selected asset has already been graded");
+        }
+        const d = COLLECTIBLE_BY_ID[o.itemId];
+        if (!d) throw new GameError("Unknown asset definition");
+        targets.push({ o, d });
+        totalBase += d.baseValue;
+      }
+      const fee = totalBase > 0 ? Math.max(1, Math.round(totalBase * GRADING_FEE_PCT)) : 0;
+      debit(c, fee, "collectible_grading", "market:grading", `${targets.length}_units`);
+      const byItem: Record<
+        string,
+        { name: string; total: number; counts: Record<string, number> }
+      > = {};
+      for (const { o, d } of targets) {
+        const rolled = rollRarity();
+        o.rarity = rolled;
+        const entry = (byItem[d.id] ??= { name: d.name, total: 0, counts: {} });
+        entry.total += 1;
+        entry.counts[rolled] = (entry.counts[rolled] ?? 0) + 1;
+      }
+      s.lastGradingReport = {
+        at: c.now,
+        fee,
+        totalUnits: targets.length,
+        byItem,
+      };
+      gainXp(c, Math.min(250, targets.length * 5), p);
+      notify(c, "info", `Graded ${targets.length} asset${targets.length === 1 ? "" : "s"}`);
+      break;
+    }
   }
   if (!Number.isFinite(s.cash) || s.cash < -1e-6) throw new GameError("Insufficient funds");
-  // Achievement evaluation is performed once by the action-processing boundary.
 }
 
 function applyBank(c: Ctx, a: BankAction) {
   switch (a.type) {
     case "registerBank": {
-      if (c.s.bankAccounts[a.bankId])
-        throw new GameError("Already registered with this institution");
-      const bankDef = BANK_BY_ID[a.bankId];
-      if (!bankDef) throw new GameError("Unknown banking institution");
-      if (c.s.level < bankDef.tierRequired)
-        throw new GameError(`Requires player level ${bankDef.tierRequired} to open this account`);
-      const activeAccountCount = Object.values(c.s.bankAccounts).length;
-      if (activeAccountCount >= MAX_ACTIVE_BANK_ACCOUNTS)
-        throw new GameError("You can have a maximum of two active bank accounts");
-      c.s.bankAccounts[a.bankId] = {
-        inst: a.bankId,
-        defId: a.bankId,
+      const bankId = PRIMARY_BANK_ID;
+      if (a.bankId !== bankId) throw new GameError("Unknown banking institution");
+      if (c.s.bankAccounts[bankId]) throw new GameError("Bank account is already open");
+      c.s.bankAccounts[bankId] = {
+        inst: bankId,
+        defId: bankId,
         balance: 0,
         createdAt: c.now,
         transactions: [],
@@ -1781,8 +2000,6 @@ function applyBank(c: Ctx, a: BankAction) {
       const bankDef = BANK_BY_ID[a.bankId];
       if (!bankDef) throw new GameError("Unknown banking institution");
 
-      // Every institution assesses the same consolidated exposure. Debt at
-      // another bank reduces this bank's remaining lending capacity as well.
       const currentDebt = getTotalActiveDebt(c.s, c.now);
       const creditLimit = calculateBankCreditLimit(bankDef, c.s, c.now);
       const availableCredit = Math.max(0, creditLimit - currentDebt);
@@ -1827,7 +2044,6 @@ function applyBank(c: Ctx, a: BankAction) {
       if (payAmount <= 0) throw new GameError("Loan already paid in full");
       if (c.s.cash < payAmount) throw new GameError("Insufficient cash to repay loan");
 
-      // Repay accrued interest before reducing principal.
       const accruedInterest = loan.accruedInterest ?? Math.max(0, loan.remaining - loan.principal);
       const principalRemaining =
         loan.principalRemaining ?? Math.max(0, loan.remaining - accruedInterest);
@@ -1855,12 +2071,8 @@ function applyBank(c: Ctx, a: BankAction) {
     case "linkBusinessIncome": {
       const company = c.s.companies[a.inst];
       if (!company) throw new GameError("Business not found");
-      if (a.bankId !== null) {
-        const bank = BANK_BY_ID[a.bankId];
-        if (!bank || !c.s.bankAccounts[a.bankId])
-          throw new GameError("Active bank account required");
-        if (bank.category !== "Wide-scale" && bank.category !== "Business-finance")
-          throw new GameError("This bank does not support business income linking");
+      if (a.bankId !== null && !c.s.bankAccounts[a.bankId]) {
+        throw new GameError("Active bank account required");
       }
       company.incomeBankId = a.bankId ?? undefined;
       break;
@@ -1868,12 +2080,8 @@ function applyBank(c: Ctx, a: BankAction) {
     case "linkPropertyIncome": {
       const property = c.s.properties[a.inst];
       if (!property) throw new GameError("Property not found");
-      if (a.bankId !== null) {
-        const bank = BANK_BY_ID[a.bankId];
-        if (!bank || !c.s.bankAccounts[a.bankId])
-          throw new GameError("Active bank account required");
-        if (bank.category !== "Wide-scale" && bank.category !== "Real-estate")
-          throw new GameError("This bank does not support property income linking");
+      if (a.bankId !== null && !c.s.bankAccounts[a.bankId]) {
+        throw new GameError("Active bank account required");
       }
       property.incomeBankId = a.bankId ?? undefined;
       break;
