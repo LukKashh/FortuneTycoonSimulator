@@ -89,7 +89,9 @@ export function CasinoChipSvg({
         stroke={palette.ring}
         strokeWidth="1.2"
         strokeDasharray="3 2.5"
-      />
+      >
+        <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="14s" repeatCount="indefinite" />
+      </circle>
       <circle cx="32" cy="32" r="17.5" fill="#0f172a" stroke={palette.ring} strokeWidth="1.4" />
       <text
         x="32"
@@ -140,6 +142,24 @@ export function GameCoverArt({ id, className }: { id: string; className?: string
           </radialGradient>
         </defs>
         <rect width="180" height="100" fill={`url(#g-${id})`} />
+        {/* Subtle ambient motion layer shared by all casino game covers. */}
+        <g pointerEvents="none">
+          <circle cx="90" cy="50" r="34" fill="none" stroke={theme.accent} strokeOpacity="0.22" strokeWidth="0.8" strokeDasharray="2 8">
+            <animateTransform attributeName="transform" type="rotate" from="0 90 50" to="360 90 50" dur="24s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="34" cy="22" r="2.2" fill={theme.accent}>
+            <animate attributeName="opacity" values="0.25;1;0.25" dur="3.2s" repeatCount="indefinite" />
+            <animate attributeName="r" values="1.4;2.8;1.4" dur="3.2s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="148" cy="72" r="1.8" fill="#ffffff">
+            <animate attributeName="opacity" values="0.1;0.85;0.1" dur="4.1s" begin="-1.3s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="translate" values="0 0;-5 -8;0 0" dur="4.1s" repeatCount="indefinite" />
+          </circle>
+          <path d="M18 74 L22 70 L26 74 L22 78 Z" fill={theme.accent} fillOpacity="0.65">
+            <animateTransform attributeName="transform" type="translate" values="0 0;3 -9;0 0" dur="5.5s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0;0.8;0" dur="5.5s" repeatCount="indefinite" />
+          </path>
+        </g>
         {id === "dice" && (
           <g transform="translate(54 18)">
             <rect
@@ -452,7 +472,10 @@ export function SlotSymbolSvg({
 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" className={cn("select-none", className)}>
-      {renderSymbolShape(symbolId)}
+      <g style={{ transformBox: "fill-box", transformOrigin: "center" }}>
+        {renderSymbolShape(symbolId)}
+        <animateTransform attributeName="transform" type="scale" values="1;1.035;1" dur="2.8s" repeatCount="indefinite" />
+      </g>
     </svg>
   );
 }
