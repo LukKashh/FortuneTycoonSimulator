@@ -17,6 +17,7 @@ import { HiloGame } from "./games/HiloGame";
 import { SlotsGame } from "./games/SlotsGame";
 import { soundFx } from "./soundFx";
 import { cn } from "@/lib/utils";
+import { CasinoGameStage } from "./CasinoGameStage";
 
 export type OriginalId = "dice" | "plinko" | "keno" | "crash" | "mines" | "chicken" | "hilo";
 export type CasinoRouteView = "lobby" | OriginalId | `slot:${SlotId}`;
@@ -414,19 +415,21 @@ export function CasinoHub({ cash, cs }: { cash: number; cs: CasinoState }) {
             </div>
           )}
 
-          {currentView === "dice" && <DiceGame cs={cs} />}
-          {currentView === "plinko" && <PlinkoGame cs={cs} />}
-          {currentView === "keno" && <KenoGame cs={cs} />}
-          {currentView === "crash" && <CrashGame cs={cs} />}
-          {currentView === "mines" && <MinesGame cs={cs} />}
-          {currentView === "chicken" && <ChickenGame cs={cs} />}
-          {currentView === "hilo" && <HiloGame cs={cs} />}
+          {currentView === "dice" && <CasinoGameStage game="dice"><DiceGame cs={cs} /></CasinoGameStage>}
+          {currentView === "plinko" && <CasinoGameStage game="plinko"><PlinkoGame cs={cs} /></CasinoGameStage>}
+          {currentView === "keno" && <CasinoGameStage game="keno"><KenoGame cs={cs} /></CasinoGameStage>}
+          {currentView === "crash" && <CasinoGameStage game="crash"><CrashGame cs={cs} /></CasinoGameStage>}
+          {currentView === "mines" && <CasinoGameStage game="mines"><MinesGame cs={cs} /></CasinoGameStage>}
+          {currentView === "chicken" && <CasinoGameStage game="chicken"><ChickenGame cs={cs} /></CasinoGameStage>}
+          {currentView === "hilo" && <CasinoGameStage game="hilo"><HiloGame cs={cs} /></CasinoGameStage>}
           {currentView.startsWith("slot:") && (
-            <SlotsGame
-              cs={cs}
-              slotId={currentView.replace("slot:", "") as SlotId}
-              onSelectSlot={(id) => openGame(`slot:${id}`)}
-            />
+            <CasinoGameStage game={`slot:${currentView.replace("slot:", "") as SlotId}`}>
+              <SlotsGame
+                cs={cs}
+                slotId={currentView.replace("slot:", "") as SlotId}
+                onSelectSlot={(id) => openGame(`slot:${id}`)}
+              />
+            </CasinoGameStage>
           )}
         </div>
       )}
